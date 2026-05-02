@@ -7,9 +7,9 @@ PKG := ./cmd/lokiotel
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
-LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildDate=$(DATE)
+LDFLAGS := -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.date=$(DATE)
 
-.PHONY: build test lint run release
+.PHONY: build test lint run release release-dryrun
 
 build:
 	go build -trimpath -ldflags "$(LDFLAGS)" $(PKG)
@@ -26,4 +26,8 @@ run:
 release:
 	GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='$(LDFLAGS) -s -w' -o dist/$(BIN)-linux-amd64 $(PKG)
 	GOOS=linux GOARCH=arm64 go build -trimpath -ldflags='$(LDFLAGS) -s -w' -o dist/$(BIN)-linux-arm64 $(PKG)
+	GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags='$(LDFLAGS) -s -w' -o dist/$(BIN)-darwin-amd64 $(PKG)
 	GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags='$(LDFLAGS) -s -w' -o dist/$(BIN)-darwin-arm64 $(PKG)
+
+release-dryrun:
+	goreleaser release --snapshot --clean
