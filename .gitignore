@@ -1,0 +1,5 @@
+/lokiotel
+/dist/
+/tmp/
+*.log
+.env
