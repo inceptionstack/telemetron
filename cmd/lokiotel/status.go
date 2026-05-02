@@ -1,14 +1,13 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"os"
-	"os/exec"
-	"strings"
 	"time"
 
+	"github.com/inceptionstack/loki-otl/internal/collectorapi"
 	"github.com/inceptionstack/loki-otl/internal/config"
-	"github.com/inceptionstack/loki-otl/internal/openclaw"
+	"github.com/inceptionstack/loki-otl/internal/service"
 	"github.com/inceptionstack/loki-otl/internal/status"
 	"github.com/spf13/cobra"
 )
@@ -18,26 +17,40 @@ func newStatusCmd() *cobra.Command {
 		Use:   "status",
 		Short: "Show service status without hitting the network",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load(config.LoadOptions{
-				ConfigPath: configPath,
-				Overrides:  map[string]string{"log_level": logLevel},
-			})
+			svcStatus, err := service.New().ProbeStatus()
 			if err != nil {
 				return err
 			}
-			snap, _ := status.New(cfg.OpenClaw.StatusFile).Read()
-			state, _ := openclaw.LoadState(cfg.OpenClaw.StateFile)
-			unit := readUnitStatus()
-			files, _ := os.ReadDir(cfg.OpenClaw.SessionDir)
-			fmt.Fprintf(cmd.OutOrStdout(), "unit:\t\t%s\n", unit)
-			fmt.Fprintf(cmd.OutOrStdout(), "mode:\t\t%s\n", cfg.Mode)
-			fmt.Fprintf(cmd.OutOrStdout(), "endpoint:\t%s\n", cfg.Endpoint)
-			fmt.Fprintf(cmd.OutOrStdout(), "deployment_id:\t%s\n", cfg.Declared.DeploymentID)
-			fmt.Fprintf(cmd.OutOrStdout(), "last flush:\t%s\n", renderWhen(snap.LastFlushAt, snap.LastFlushMetric))
-			fmt.Fprintf(cmd.OutOrStdout(), "last heartbeat:\t%s\n", renderWhen(snap.LastHeartbeatAt, 0))
-			fmt.Fprintf(cmd.OutOrStdout(), "dropped batches:\t%d\n", snap.DroppedBatches)
-			fmt.Fprintf(cmd.OutOrStdout(), "session_dir:\t%s (%d files)\n", cfg.OpenClaw.SessionDir, len(files))
-			fmt.Fprintf(cmd.OutOrStdout(), "state file:\t%s (%d sessions tracked)\n", cfg.OpenClaw.StateFile, len(state.Files))
+			fmt.Fprintf(cmd.OutOrStdout(), "unit:\t\t%s\n", svcStatus.Detail)
+
+			cfg, err := config.Load(config.LoadOptions{
+				ConfigPath: configPath,
+				Overrides:  map[string]any{"log_level": logLevel},
+			})
+			if err == nil {
+				snap, _ := status.New(cfg.Paths.StatusFile).Read()
+				fmt.Fprintf(cmd.OutOrStdout(), "mode:\t\t%s\n", cfg.Mode)
+				fmt.Fprintf(cmd.OutOrStdout(), "endpoint:\t%s\n", cfg.Endpoint)
+				fmt.Fprintf(cmd.OutOrStdout(), "deployment_id:\t%s\n", cfg.Declared.DeploymentID)
+				fmt.Fprintf(cmd.OutOrStdout(), "last flush:\t%s\n", renderWhen(snap.LastFlushAt, snap.LastFlushMetric))
+				fmt.Fprintf(cmd.OutOrStdout(), "last heartbeat:\t%s\n", renderWhen(snap.LastHeartbeatAt, 0))
+				fmt.Fprintf(cmd.OutOrStdout(), "dropped batches:\t%d\n", snap.DroppedBatches)
+
+				collector, collectorErr := collectorapi.New(cfg.Collectors[cfg.Mode], status.New(cfg.Paths.StatusFile), cfg)
+				if collectorErr == nil {
+					if reporter, ok := collector.(collectorapi.StatusReporter); ok {
+						for _, line := range reporter.ReportStatus(context.Background()) {
+							fmt.Fprintf(cmd.OutOrStdout(), "%s:\t%s\n", line.Label, line.Value)
+						}
+					}
+				}
+			} else if svcStatus.Installed {
+				return err
+			}
+
+			if !svcStatus.Active {
+				return fmt.Errorf("lokiotel is not active")
+			}
 			return nil
 		},
 	}
@@ -52,17 +65,4 @@ func renderWhen(ts time.Time, metrics int) string {
 		rendered += fmt.Sprintf(", %d metrics", metrics)
 	}
 	return rendered + ")"
-}
-
-func readUnitStatus() string {
-	cmd := exec.Command("systemctl", "show", "lokiotel.service", "--property=ActiveState,SubState,ActiveEnterTimestamp", "--value")
-	out, err := cmd.Output()
-	if err != nil {
-		return "unknown"
-	}
-	parts := strings.Split(strings.TrimSpace(string(out)), "\n")
-	if len(parts) < 3 {
-		return strings.TrimSpace(string(out))
-	}
-	return fmt.Sprintf("%s (%s) since %s", parts[0], parts[1], parts[2])
 }

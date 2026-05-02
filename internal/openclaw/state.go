@@ -3,7 +3,8 @@ package openclaw
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
+
+	"github.com/inceptionstack/loki-otl/internal/fsatomic"
 )
 
 type FileState struct {
@@ -11,7 +12,6 @@ type FileState struct {
 	SessionStarted  bool   `json:"session_started"`
 	SessionType     string `json:"session_type,omitempty"`
 	LastModelFamily string `json:"last_model_family,omitempty"`
-	LastTopRole     string `json:"last_top_role,omitempty"`
 }
 
 type State struct {
@@ -37,16 +37,9 @@ func LoadState(path string) (State, error) {
 }
 
 func SaveState(path string, state State) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return fsatomic.WriteFile(path, data)
 }

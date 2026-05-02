@@ -1,0 +1,27 @@
+//go:build darwin
+
+package service
+
+import "github.com/inceptionstack/loki-otl/internal/config"
+
+type darwinService struct{}
+
+func newService() Service {
+	return darwinService{}
+}
+
+func (darwinService) Install(config.Config, string) error {
+	return ErrUnsupported
+}
+
+func (darwinService) Uninstall() error {
+	return ErrUnsupported
+}
+
+func (darwinService) EnableAndStart() error {
+	return ErrUnsupported
+}
+
+func (darwinService) ProbeStatus() (Status, error) {
+	return Status{Detail: "daemon install unsupported on macOS"}, nil
+}

@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/inceptionstack/loki-otl/internal/collectors"
+	"github.com/inceptionstack/loki-otl/internal/collectorapi"
 	"github.com/inceptionstack/loki-otl/internal/config"
 	"github.com/inceptionstack/loki-otl/internal/otlp"
 	"github.com/inceptionstack/loki-otl/internal/status"
@@ -21,7 +21,7 @@ func newStartCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load(config.LoadOptions{
 				ConfigPath: configPath,
-				Overrides:  map[string]string{"log_level": logLevel},
+				Overrides:  map[string]any{"log_level": logLevel},
 			})
 			if err != nil {
 				return err
@@ -31,8 +31,8 @@ func newStartCmd() *cobra.Command {
 				return err
 			}
 			logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-			store := status.New(cfg.OpenClaw.StatusFile)
-			collector, err := collectors.New(cfg, store)
+			store := status.New(cfg.Paths.StatusFile)
+			collector, err := collectorapi.New(cfg.Collectors[cfg.Mode], store, cfg)
 			if err != nil {
 				return err
 			}
@@ -42,7 +42,7 @@ func newStartCmd() *cobra.Command {
 				"environment":   cfg.Declared.Environment,
 				"pack_version":  cfg.Declared.PackVersion,
 			}, nil)
-			sink := otlp.NewSink(exporter, logger, store)
+			sink := otlp.NewSink(exporter, logger, store, cfg.Mode)
 			ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 			defer cancel()
 			return collector.Start(ctx, sink)

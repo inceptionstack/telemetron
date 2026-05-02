@@ -1,16 +1,22 @@
 package main
 
 import (
-	"github.com/inceptionstack/loki-otl/internal/systemd"
+	"errors"
+
+	"github.com/inceptionstack/loki-otl/internal/service"
 	"github.com/spf13/cobra"
 )
 
 func newUninstallCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "uninstall",
-		Short: "Remove the systemd unit",
+		Short: "Remove the service unit",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return systemd.Uninstall()
+			err := service.New().Uninstall()
+			if errors.Is(err, service.ErrUnsupported) {
+				return err
+			}
+			return err
 		},
 	}
 }

@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime"
 
+	_ "github.com/inceptionstack/loki-otl/internal/openclaw"
 	"github.com/spf13/cobra"
 )
 
@@ -11,6 +13,8 @@ var (
 	configPath string
 	logLevel   string
 	version    = "dev"
+	commit     = "unknown"
+	buildDate  = "unknown"
 )
 
 func main() {
@@ -26,8 +30,8 @@ func newRootCmd() *cobra.Command {
 		Use:   "lokiotel",
 		Short: "Loki OTel sidecar",
 	}
-	cmd.PersistentFlags().StringVar(&configPath, "config", "/etc/lokiotel/config.yaml", "config file path")
-	cmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "trace|debug|info|warn|error")
+	cmd.PersistentFlags().StringVar(&configPath, "config", "", "config file path (env: LOKIOTEL_CONFIG, default: platform-specific)")
+	cmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "trace|debug|info|warn|error (env: LOKIOTEL_LOG_LEVEL, config: log_level)")
 	cmd.AddCommand(newInstallCmd(), newUninstallCmd(), newStartCmd(), newStatusCmd(), newVersionCmd())
 	return cmd
 }
@@ -37,7 +41,7 @@ func newVersionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print build version",
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Fprintln(cmd.OutOrStdout(), version)
+			fmt.Fprintf(cmd.OutOrStdout(), "version=%s commit=%s date=%s %s/%s\n", version, commit, buildDate, runtime.GOOS, runtime.GOARCH)
 		},
 	}
 }

@@ -3,8 +3,9 @@ package status
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"time"
+
+	"github.com/inceptionstack/loki-otl/internal/fsatomic"
 )
 
 type Snapshot struct {
@@ -39,16 +40,9 @@ func (s *Store) Read() (Snapshot, error) {
 }
 
 func (s *Store) Write(snap Snapshot) error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
-		return err
-	}
-	tmp := s.path + ".tmp"
 	data, err := json.MarshalIndent(snap, "", "  ")
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, s.path)
+	return fsatomic.WriteFile(s.path, data)
 }

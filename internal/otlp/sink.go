@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -28,11 +26,12 @@ type Sink struct {
 	export  *Exporter
 	logger  *slog.Logger
 	status  *status.Store
+	mode    string
 	snap    status.Snapshot
 	dropped int
 }
 
-func NewSink(exporter *Exporter, logger *slog.Logger, store *status.Store) *Sink {
+func NewSink(exporter *Exporter, logger *slog.Logger, store *status.Store, mode string) *Sink {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -41,6 +40,7 @@ func NewSink(exporter *Exporter, logger *slog.Logger, store *status.Store) *Sink
 		export: exporter,
 		logger: logger,
 		status: store,
+		mode:   mode,
 	}
 }
 
@@ -93,15 +93,17 @@ func (s *Sink) Flush(ctx context.Context) (FlushResult, error) {
 	}
 
 	if resp.StatusCode == httpStatusUnauthorized || resp.StatusCode == httpStatusForbidden {
+		s.recordDrop(resp.StatusCode)
 		result.AuthFailure = true
 		result.Dropped = true
-		s.recordDrop(resp.StatusCode)
+		result.DroppedTotal = s.dropped
 		s.logger.Error("auth export failure", slog.Int("status", resp.StatusCode), slog.String("body", resp.Body))
 		return result, fmt.Errorf("export rejected: %d", resp.StatusCode)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		result.Dropped = true
 		s.recordDrop(resp.StatusCode)
+		result.Dropped = true
+		result.DroppedTotal = s.dropped
 		s.logger.Warn("http export failure", slog.Int("status", resp.StatusCode), slog.String("body", resp.Body))
 		return result, fmt.Errorf("export rejected: %d", resp.StatusCode)
 	}
@@ -113,7 +115,7 @@ func (s *Sink) Flush(ctx context.Context) (FlushResult, error) {
 	_ = s.status.Write(s.snap)
 	s.logger.Info("flush",
 		slog.String("event", "flush"),
-		slog.String("mode", "openclaw"),
+		slog.String("mode", s.mode),
 		slog.Int("batch_metrics", len(points)),
 		slog.Int("bytes", resp.Bytes),
 		slog.Int("http_status", resp.StatusCode),
@@ -133,16 +135,3 @@ const (
 	httpStatusUnauthorized = 401
 	httpStatusForbidden    = 403
 )
-
-func seriesKey(name string, attrs map[string]string) string {
-	keys := make([]string, 0, len(attrs))
-	for key := range attrs {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	parts := []string{name}
-	for _, key := range keys {
-		parts = append(parts, key+"="+attrs[key])
-	}
-	return strings.Join(parts, "|")
-}
