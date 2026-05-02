@@ -1,104 +1,156 @@
-# lokiotel
+# loki-otl
 
-`lokiotel` is a static Go sidecar that tails local Loki/OpenClaw session state, derives bounded metrics, and exports them to an OTLP/HTTP metrics endpoint with bearer auth.
+Privacy-safe telemetry sidecar for Loki/OpenClaw-style agent sessions, exporting bounded OTLP metrics without shipping transcript content.
+
+[![Go Reference](https://pkg.go.dev/badge/github.com/inceptionstack/loki-otl.svg)](https://pkg.go.dev/github.com/inceptionstack/loki-otl)
+[![CI](https://img.shields.io/github/actions/workflow/status/inceptionstack/loki-otl/ci.yml?branch=main&label=ci)](https://github.com/inceptionstack/loki-otl/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/inceptionstack/loki-otl)](LICENSE)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/inceptionstack/loki-otl)](go.mod)
+
+## What it is
+
+`lokiotel` is a small Go binary that tails local session JSONL files, derives a bounded set of counters, and exports them to any OTLP/HTTP metrics endpoint. It is built for operators who want host-local telemetry collection without shipping prompts, responses, tool payloads, or other per-message content off the machine.
+
+## Why
+
+Modern coding agents leave rich local state behind, but shipping that state raw creates privacy, compliance, and operational risk. `lokiotel` solves that by acting as a privacy-safe telemetry sidecar that derives bounded counters and sends them to any OTLP/HTTP endpoint with bearer auth, without leaking per-message content or prompt data.
+
+## Install
+
+1. Go install:
+
+   ```bash
+   go install github.com/inceptionstack/loki-otl/cmd/lokiotel@latest
+   ```
+
+2. Prebuilt binaries:
+
+   Download the matching archive from GitHub Releases for:
+
+   - `linux/amd64`
+   - `linux/arm64`
+   - `darwin/amd64`
+   - `darwin/arm64`
+
+3. From source:
+
+   ```bash
+   git clone https://github.com/inceptionstack/loki-otl.git
+   cd loki-otl
+   make build
+   ```
 
 ## Quickstart
 
+This example installs `lokiotel` against a generic OTLP/HTTP endpoint. Replace the token value and session directory for your host.
+
 ```bash
-make test
+git clone https://github.com/inceptionstack/loki-otl.git
+cd loki-otl
 make build
+
+sudo install -d -m 0755 /etc/lokiotel
+printf '%s\n' 'replace-with-your-bearer-token' | sudo tee /etc/lokiotel/token >/dev/null
+sudo chmod 0400 /etc/lokiotel/token
+
 sudo ./lokiotel install \
-  --endpoint https://cfw713s6qf.execute-api.us-east-1.amazonaws.com/v1/metrics \
-  --token "$LOKIOTEL_TOKEN" \
+  --endpoint https://your-otlp-gateway.example.com/v1/metrics \
+  --token "$(sudo cat /etc/lokiotel/token)" \
   --mode openclaw \
   --session-dir "$HOME/.openclaw/agents/main/sessions" \
-  --deployment-id mvp-002 \
-  --tier internal
-sudo systemctl status lokiotel
+  --deployment-id dev-laptop \
+  --tier development
+
 ./lokiotel status
 ```
 
-Linux supports full `install`/`uninstall` service management. On macOS, `lokiotel start --config ~/.config/lokiotel/config.yaml` is supported for local runs, while daemon install remains unsupported.
+For macOS, run `lokiotel start --config ~/.config/lokiotel/config.yaml` directly or under `launchd`. See [docs/macos.md](docs/macos.md).
 
 ## Configuration
 
-`/etc/lokiotel/config.yaml`
+The full reference lives in [docs/configuration.md](docs/configuration.md). A complete example:
 
 ```yaml
+# Collector mode to load. v0.2 ships with "openclaw".
 mode: openclaw
-endpoint: https://cfw713s6qf.execute-api.us-east-1.amazonaws.com/v1/metrics
+
+# OTLP/HTTP metrics endpoint. Use HTTPS in production.
+endpoint: https://your-otlp-gateway.example.com/v1/metrics
+
+# Path to a bearer token file. Keep this file mode 0400.
 token_file: /etc/lokiotel/token
+
+# Structured log verbosity for foreground runs and service logs.
+log_level: info
+
+# Allow plaintext http:// endpoints for local testing only.
 insecure_endpoint: false
 
-openclaw:
-  session_dir: /home/ec2-user/.openclaw/agents/main/sessions
-  flush_interval: 15s
-  scan_interval: 15s
-  state_file: /var/lib/lokiotel/openclaw.state.json
-
 declared:
-  deployment_id: mvp-002
-  tier: internal
-  environment: development
-  pack_version: lokiotel-0.1
+  # Optional local metadata for debugging. The server may override identity.
+  deployment_id: dev-laptop
+  # Optional deployment tier hint.
+  tier: development
+  # Optional environment hint.
+  environment: local
+  # Optional operator-supplied pack or bundle version.
+  pack_version: lokiotel-0.2.0
+
+openclaw:
+  # Directory containing session JSONL files to tail.
+  session_dir: /home/you/.openclaw/agents/main/sessions
+  # Interval between OTLP flushes.
+  flush_interval: 15s
+  # Interval between scans for appended session data.
+  scan_interval: 15s
+  # Durable state file storing per-session offsets.
+  state_file: /var/lib/lokiotel/openclaw.state.json
 ```
 
-Env overrides:
+## How it works
 
-```bash
-export LOKIOTEL_CONFIG=/etc/lokiotel/config.yaml
-export LOKIOTEL_ENDPOINT=https://cfw713s6qf.execute-api.us-east-1.amazonaws.com/v1/metrics
-export LOKIOTEL_TOKEN_FILE=/etc/lokiotel/token
-export LOKIOTEL_MODE=openclaw
-export LOKIOTEL_LOG_LEVEL=info
+`lokiotel` watches local session files, resumes from durable offsets, derives an allowlisted set of counters, and exports those counters to your OTLP/HTTP gateway with bearer authentication. The collector never sends transcript bodies, prompt content, tool arguments, or other raw session payloads. It ships only bounded metric names and normalized attribute values.
+
+```text
+sessions/*.jsonl
+       |
+       v
+     tail
+       |
+       v
+derive counters
+       |
+       v
+   OTLP/HTTP
+       |
+       v
+ your gateway
 ```
 
-`LOKIOTEL_TOKEN` is supported as an inline fallback when `token_file` is missing or unreadable. The bearer token is never stored inline in YAML.
+## Extending to other agents
 
-`--insecure-endpoint` / `insecure_endpoint: true` is only for local testing against a plaintext OTLP endpoint. Production installs should use `https://` and leave this disabled.
+The collector interface is intentionally additive. If you need support for another local agent or session format, you can add a new collector package, register it, and ship it without touching the OTLP sink or service plumbing. See [docs/extending.md](docs/extending.md) for a five-step walkthrough using a `claude-code` example.
 
-## Commands
+## Platform support
 
-```bash
-lokiotel install
-lokiotel uninstall
-lokiotel start
-lokiotel status
-lokiotel version
-```
+| Platform | Install | Start | Status |
+| --- | --- | --- | --- |
+| Linux systemd | `lokiotel install` supported | `lokiotel start` supported | `lokiotel status` supported |
+| macOS | daemon install unsupported | foreground `start` supported | `status` supported |
+| Other | daemon install unsupported | best-effort foreground `start` | limited `status` detail |
 
-`lokiotel status` exits non-zero when the service is not active.
+## Security
 
-## Adding a collector
+`lokiotel` is designed so message content never leaves the box. The collector emits only allowlisted metric names with a bounded attribute set, reads its bearer token from a `0400` file, and requires HTTPS by default. Plaintext endpoints are rejected unless `insecure_endpoint` is explicitly enabled for local testing.
 
-Adding a new mode is intentionally additive:
+## Status
 
-1. Create `internal/<mode>/` and implement `collectorapi.Collector`.
-2. Add an `init()` that calls `collectorapi.Register(...)` with the mode name, config decoder, factory, and defaults.
-3. Keep that mode’s config schema and validation inside its own package.
-4. Add one blank import in `cmd/lokiotel/main.go`, or a build-tagged blank import file if the mode is optional.
-5. Run `go test ./...` and, if the mode is optional, `go test -tags <tag> ./...`.
+`alpha` for `v0.2`.
 
-`internal/demo/` is a minimal build-tagged example. Build it with `go build -tags demo ./cmd/lokiotel`.
+## License
 
-## Build and test
+Apache-2.0. See [LICENSE](LICENSE).
 
-```bash
-make test
-make lint
-go build -trimpath -ldflags="-s -w" ./cmd/lokiotel
-GOOS=darwin GOARCH=arm64 go build -trimpath ./cmd/lokiotel
-```
+## Contributing
 
-## Troubleshooting
-
-- `token file permissions`: `/etc/lokiotel/token` should be `0600`.
-- `401/403 exports`: verify the token source and endpoint; auth failures back off to `flush_interval * 6`.
-- `no metrics emitted`: confirm `openclaw.session_dir` exists and contains complete `.jsonl` lines.
-- `status shows stale heartbeat`: inspect `journalctl -u lokiotel` for flush logs and exporter failures.
-- `systemd install failed`: run as `root` or under `sudo`, and ensure `systemctl` and `useradd` are available.
-
-## Open questions
-
-1. The spec says out-of-set enum values must normalize to `unknown`, but the listed `outcome` enum omits `unknown`. The implementation normalizes invalid outcomes to `unknown`; confirm the server accepts that value.
-2. Resource attributes are included only for local debugging and should be treated as advisory because the server strips caller-supplied resource identity.
+See [CONTRIBUTING.md](CONTRIBUTING.md).
