@@ -1,0 +1,5 @@
+{"type":"session","cwd":"/home/tester/.openclaw/workspace"}
+{"type":"model_change","provider":"openai","modelId":"gpt-4.1"}
+{"type":"message","message":{"role":"assistant","provider":"openai","model":"gpt-4.1","stopReason":"stop","content":[{"type":"toolCall","name":"read"}]}}
+{"type":"message","message":{"role":"assistant","provider":"openai","model":"gpt-4.1","stopReason":"stop","content":[]}}
+{"type":"custom","customType":"synthetic:prompt-error"}
