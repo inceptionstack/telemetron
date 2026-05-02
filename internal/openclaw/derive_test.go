@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package openclaw
 
 import (
@@ -65,7 +67,7 @@ func TestDeriveSessionType(t *testing.T) {
 		firstText string
 		expected  string
 	}{
-		{"main path", "/home/ec2-user/.openclaw/agents/main/sessions/a.jsonl", "", "", "main"},
+		{"main path", "/home/tester/.openclaw/agents/main/sessions/a.jsonl", "", "", "main"},
 		{"subagent text", "/tmp/s.jsonl", "", "[Subagent Context] do work", "subagent"},
 		{"heartbeat path", "/tmp/heartbeat-session.jsonl", "", "", "heartbeat"},
 		{"cron path", "/tmp/cron-run.jsonl", "", "", "cron"},

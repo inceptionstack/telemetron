@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package openclaw
 
 import (
@@ -7,8 +9,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/user"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -299,17 +301,25 @@ func defaultConfig(paths config.Paths) any {
 }
 
 func defaultSessionDir() string {
-	sudoUser := strings.TrimSpace(os.Getenv("SUDO_USER"))
-	if sudoUser != "" {
-		if account, err := user.Lookup(sudoUser); err == nil && account.HomeDir != "" {
-			return filepath.Join(account.HomeDir, ".openclaw/agents/main/sessions")
+	return resolveSessionDir(runtime.GOOS, os.Getenv("HOME"))
+}
+
+func resolveSessionDir(goos, home string) string {
+	home = strings.TrimSpace(home)
+	switch goos {
+	case "linux":
+		if home != "" {
+			return filepath.Join(home, ".openclaw/agents/main/sessions")
 		}
-		return filepath.Join("/home", sudoUser, ".openclaw/agents/main/sessions")
+		return ""
+	case "darwin":
+		if home != "" {
+			return filepath.Join(home, ".openclaw/agents/main/sessions")
+		}
+		return ""
+	default:
+		return ""
 	}
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		return filepath.Join(home, ".openclaw/agents/main/sessions")
-	}
-	return "/home/ec2-user/.openclaw/agents/main/sessions"
 }
 
 func normalizeModel(value string) string {

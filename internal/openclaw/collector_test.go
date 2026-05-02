@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 package openclaw
 
 import (
@@ -38,7 +40,7 @@ func TestCollectorScanEndToEnd(t *testing.T) {
 	sessionPath := filepath.Join(sessionDir, "sample.jsonl")
 
 	transcript := "" +
-		`{"type":"session","cwd":"/home/ec2-user/.openclaw/workspace"}` + "\n" +
+		`{"type":"session","cwd":"/home/tester/.openclaw/workspace"}` + "\n" +
 		`{"type":"message","message":{"role":"assistant","provider":"amazon-bedrock","model":"us.anthropic.claude-opus-4-6-v1","stopReason":"stop","content":[{"type":"toolCall","name":"read"}]}}` + "\n" +
 		`{"type":"message","message":{"role":"assistant","provider":"openai","model":"gpt-4.1","stopReason":"stop","content":[{"type":"toolCall","name":"web_fetch"}]}}` + "\n" +
 		`{"type":"message","message":{"role":"assistant","provider":"openai","model":"gpt-4.1","stopReason":"stop","content":[]}}` + "\n" +
@@ -100,4 +102,24 @@ func TestCollectorScanEndToEnd(t *testing.T) {
 	finalSink := &recordingSink{}
 	require.NoError(t, collector.scan(finalSink))
 	require.Empty(t, finalSink.points)
+}
+
+func TestResolveSessionDir(t *testing.T) {
+	t.Parallel()
+
+	home := filepath.Join(string(os.PathSeparator), "home", "tester")
+	expected := filepath.Join(home, ".openclaw/agents/main/sessions")
+
+	require.Equal(t, expected, resolveSessionDir("linux", home))
+	require.Equal(t, "", resolveSessionDir("linux", ""))
+	require.Equal(t, expected, resolveSessionDir("darwin", home))
+	require.Equal(t, "", resolveSessionDir("darwin", ""))
+}
+
+func TestDefaultSessionDirUsesHome(t *testing.T) {
+	t.Setenv("HOME", filepath.Join(string(os.PathSeparator), "tmp", "tester"))
+	require.Equal(t,
+		filepath.Join(string(os.PathSeparator), "tmp", "tester", ".openclaw/agents/main/sessions"),
+		defaultSessionDir(),
+	)
 }

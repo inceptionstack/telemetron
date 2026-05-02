@@ -1,5 +1,7 @@
 //go:build darwin
 
+// SPDX-License-Identifier: Apache-2.0
+
 package service
 
 import "github.com/inceptionstack/loki-otl/internal/config"

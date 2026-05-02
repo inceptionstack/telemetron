@@ -1,5 +1,7 @@
 //go:build demo
 
+// SPDX-License-Identifier: Apache-2.0
+
 package demo
 
 import (
