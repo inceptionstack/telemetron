@@ -6,7 +6,7 @@ A single small Go binary `lokiotel` that runs as a sidecar next to a Loki
 agent installation on the same host, reads that agent's local state, converts
 it to OTLP metrics, and ships them to a central OTLP ingester (today: our
 AWS API GW + Lambda ingester at
-`https://cfw713s6qf.execute-api.us-east-1.amazonaws.com/v1/metrics`).
+`https://your-otlp-gateway.example.com/v1/metrics`).
 
 Think of it as a generalised, pluggable replacement for the
 `loki-pack-emitter` Python MVP we're currently running. Same wire contract,
@@ -58,7 +58,7 @@ existing config file, then fail loudly with a helpful message.
 mode: openclaw
 
 # OTLP/HTTP endpoint the agent should POST to.
-endpoint: https://cfw713s6qf.execute-api.us-east-1.amazonaws.com/v1/metrics
+endpoint: https://your-otlp-gateway.example.com/v1/metrics
 
 # Path to a file containing the bearer token. Must be chmod 0600.
 # Never store the token inline in the YAML.
@@ -67,7 +67,7 @@ token_file: /etc/lokiotel/token
 # Per-mode settings. Unknown keys for the selected mode must be rejected.
 openclaw:
   # Directory the openclaw emitter watches for session jsonl files.
-  session_dir: /home/ec2-user/.openclaw/agents/main/sessions
+  session_dir: $HOME/.openclaw/agents/main/sessions
   # How often to flush metric batches to the endpoint.
   flush_interval: 15s
   # How often to re-scan the session_dir for new sessions.
@@ -224,11 +224,11 @@ place (idempotent, safe to re-run).
 ```
 unit:          active (running) since 2026-05-02 22:10 UTC
 mode:          openclaw
-endpoint:      https://cfw713s6qf.execute-api.us-east-1.amazonaws.com/v1/metrics
+endpoint:      https://your-otlp-gateway.example.com/v1/metrics
 deployment_id: mvp-002
 last flush:    2026-05-02 22:11:15 UTC (3s ago, 4 metrics)
 last heartbeat:2026-05-02 22:11:00 UTC (18s ago)
-session_dir:   /home/ec2-user/.openclaw/agents/main/sessions (103 files)
+session_dir:   $HOME/.openclaw/agents/main/sessions (103 files)
 state file:    /var/lib/lokiotel/openclaw.state.json (32 sessions tracked)
 ```
 
