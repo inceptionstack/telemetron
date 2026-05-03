@@ -40,6 +40,7 @@ type setupFlags struct {
 	runAs            string
 	deploymentID     string
 	tier             string
+	healthTimeout    string
 	insecureEndpoint bool
 
 	yes            bool
@@ -76,6 +77,7 @@ on-disk state and restarts the service as needed.`,
 	cmd.Flags().StringVar(&f.runAs, "run-as", "", "OS user the service runs as; default: $SUDO_USER (env: TELEMETRON_RUN_AS)")
 	cmd.Flags().StringVar(&f.deploymentID, "deployment-id", "", "deployment id; default: loki@<hostname> (env: TELEMETRON_DEPLOYMENT_ID)")
 	cmd.Flags().StringVar(&f.tier, "tier", "", "deployment tier (env: TELEMETRON_TIER)")
+	cmd.Flags().StringVar(&f.healthTimeout, "health-timeout", "", "health-check timeout; default: 60s (env: TELEMETRON_HEALTH_TIMEOUT)")
 	cmd.Flags().BoolVar(&f.insecureEndpoint, "insecure-endpoint", false, "allow http:// endpoints (testing only)")
 	cmd.Flags().BoolVar(&f.yes, "yes", false, "skip the confirmation prompt; the summary is still printed")
 	cmd.Flags().BoolVar(&f.nonInteractive, "non-interactive", false, "never prompt; fail fast on missing required input")
@@ -250,7 +252,11 @@ func runSetup(cmd *cobra.Command, f *setupFlags) error {
 	emitter.emit(setupevents.EventServiceStarted, nil)
 
 	// --- 5. Health verification --------------------------------------------
-	if err := verifyFirstFlush(emitter); err != nil {
+	healthTimeout, err := resolveHealthTimeout(f)
+	if err != nil {
+		return emitter.errorEnvelope(setupevents.ErrInvalidConfig, nil, "", err)
+	}
+	if err := verifyFirstFlush(emitter, healthTimeout); err != nil {
 		return emitter.errorEnvelope(setupevents.ErrHealthCheckFailed, nil,
 			"service started but first flush did not land within the timeout", err)
 	}
@@ -527,19 +533,36 @@ func existingSessionDir(cfg config.Config) string {
 // --- verifyFirstFlush is intentionally simple. It waits for the status
 // file (written by the background flusher) to show a first success. The
 // status store is already the source of truth for `telemetron status`.
-func verifyFirstFlush(e *setupEmitter) error {
-	// 30s is well over the 15s default flush interval; users can Ctrl+C.
-	const timeoutSeconds = 30
-	for i := 0; i < timeoutSeconds; i++ {
+func verifyFirstFlush(e *setupEmitter, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
 		// Existing status.json check. We do not hard-require it because
 		// tests may mock the service; absence after 30s is a warning, not
 		// a hard failure, but we still surface it as health_check_failed.
 		if statusHealthy() {
 			return nil
 		}
+		if !time.Now().Before(deadline) {
+			break
+		}
 		time.Sleep(time.Second)
 	}
-	return fmt.Errorf("no successful flush observed within %ds", timeoutSeconds)
+	return fmt.Errorf("no successful flush observed within %s", timeout)
+}
+
+func resolveHealthTimeout(f *setupFlags) (time.Duration, error) {
+	raw := firstNonEmpty(f.healthTimeout, os.Getenv("TELEMETRON_HEALTH_TIMEOUT"))
+	if raw == "" {
+		return 60 * time.Second, nil
+	}
+	timeout, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("parse health timeout %q: %w", raw, err)
+	}
+	if timeout <= 0 {
+		return 0, fmt.Errorf("health timeout must be greater than zero")
+	}
+	return timeout, nil
 }
 
 func statusHealthy() bool {

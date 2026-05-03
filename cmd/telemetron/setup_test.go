@@ -5,6 +5,7 @@ package main
 import (
 	"os"
 	"testing"
+	"time"
 
 	"github.com/inceptionstack/telemetron/internal/agentdetect"
 )
@@ -197,6 +198,46 @@ func TestHintForMissing(t *testing.T) {
 	}
 }
 
+func TestResolveHealthTimeout_DefaultAndOverrides(t *testing.T) {
+	resetEnv(t)
+
+	timeout, err := resolveHealthTimeout(&setupFlags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if timeout != 60*time.Second {
+		t.Fatalf("want default 60s, got %s", timeout)
+	}
+
+	t.Setenv("TELEMETRON_HEALTH_TIMEOUT", "45s")
+	timeout, err = resolveHealthTimeout(&setupFlags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if timeout != 45*time.Second {
+		t.Fatalf("want env override 45s, got %s", timeout)
+	}
+
+	timeout, err = resolveHealthTimeout(&setupFlags{healthTimeout: "90s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if timeout != 90*time.Second {
+		t.Fatalf("want flag override 90s, got %s", timeout)
+	}
+}
+
+func TestResolveHealthTimeout_RejectsInvalidValues(t *testing.T) {
+	resetEnv(t)
+
+	if _, err := resolveHealthTimeout(&setupFlags{healthTimeout: "nope"}); err == nil {
+		t.Fatal("expected parse error")
+	}
+	if _, err := resolveHealthTimeout(&setupFlags{healthTimeout: "0s"}); err == nil {
+		t.Fatal("expected non-positive timeout error")
+	}
+}
+
 // --- helpers ------------------------------------------------------------
 
 func resetEnv(t *testing.T) {
@@ -204,7 +245,7 @@ func resetEnv(t *testing.T) {
 	for _, k := range []string{
 		"TELEMETRON_ENDPOINT", "TELEMETRON_TOKEN", "TELEMETRON_TOKEN_FILE",
 		"TELEMETRON_MODE", "TELEMETRON_SESSION_DIR", "TELEMETRON_RUN_AS",
-		"TELEMETRON_DEPLOYMENT_ID", "TELEMETRON_TIER",
+		"TELEMETRON_DEPLOYMENT_ID", "TELEMETRON_TIER", "TELEMETRON_HEALTH_TIMEOUT",
 		"SUDO_USER",
 	} {
 		t.Setenv(k, "")
