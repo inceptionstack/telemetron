@@ -44,9 +44,8 @@ func TestIsDisabled(t *testing.T) {
 		{"clawtello_telemetry=empty_noop", map[string]string{"CLAWTELLO_TELEMETRY": ""}, nil, false, result{false, ""}},
 		{"clawtello_telemetry=unset_noop", nil, nil, false, result{false, ""}},
 
-		// CLAWTELLO_DISABLE=1 is also honored (backward compat).
-		{"clawtello_disable=1", map[string]string{"CLAWTELLO_DISABLE": "1"}, nil, false, result{true, "env:CLAWTELLO_DISABLE"}},
-		{"clawtello_disable=0_noop", map[string]string{"CLAWTELLO_DISABLE": "0"}, nil, false, result{false, ""}},
+		// CLAWTELLO_DISABLE is no longer honored (single tool-specific var).
+		{"clawtello_disable_ignored", map[string]string{"CLAWTELLO_DISABLE": "1"}, nil, false, result{false, ""}},
 
 		// Precedence.
 		{"dnt_wins_over_telemetry", map[string]string{"DO_NOT_TRACK": "1", "CLAWTELLO_TELEMETRY": "0"}, nil, false, result{true, "env:DO_NOT_TRACK"}},

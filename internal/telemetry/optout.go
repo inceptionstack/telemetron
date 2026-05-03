@@ -10,8 +10,6 @@
 //  3. ~/.clawtello/telemetry-off — marker file (works for service users
 //     whose env cannot be changed easily).
 //
-// CLAWTELLO_DISABLE=1 is also accepted as an alias for backward-compat.
-//
 // When any signal is present the exporter must not run: no config load,
 // no token read, no network sockets.
 package telemetry
@@ -33,7 +31,6 @@ var optOutEnvVars = []struct {
 }{
 	{"DO_NOT_TRACK", "truthy"},
 	{"CLAWTELLO_TELEMETRY", "false0"},
-	{"CLAWTELLO_DISABLE", "truthy"},
 }
 
 // markerFileRel is the relative path (under $HOME) of the opt-out marker.
@@ -41,8 +38,8 @@ const markerFileRel = ".clawtello/telemetry-off"
 
 // IsDisabled reports whether telemetry is opted out.
 // When disabled, source identifies the signal ("env:DO_NOT_TRACK",
-// "env:CLAWTELLO_TELEMETRY", "env:CLAWTELLO_DISABLE", or "file:<path>")
-// and detail is the raw value (for env vars) or path (for file).
+// "env:CLAWTELLO_TELEMETRY", or "file:<path>") and detail is the raw
+// value (for env vars) or path (for file).
 func IsDisabled() (disabled bool, source, detail string) {
 	return isDisabled(os.Getenv, fileExists, os.UserHomeDir)
 }
