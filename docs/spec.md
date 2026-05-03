@@ -295,12 +295,10 @@ writes on every tick. No IPC, just read-the-file.
 ## What done looks like (ship checklist)
 
 - [ ] `go build ./cmd/telemetron` produces a static arm64+amd64 binary.
-- [ ] `telemetron install --endpoint ... --token ... --mode openclaw
-        --deployment-id mvp-002 --tier internal` on a fresh EC2 installs a
-  working systemd unit within 5s.
+- [ ] `telemetron install --endpoint <otlp> --mode openclaw --deployment-id <id> --tier <tier>`
+        installs a working systemd unit within 5s (token pre-staged in `/etc/telemetron/token`).
 - [ ] `journalctl -u telemetron` shows heartbeat flushes every 15s, HTTP 200.
-- [ ] Central Grafana `Heartbeat rate` panel shows a new line for
-  `deployment_id=mvp-002`.
+- [ ] The downstream OTLP backend shows a new time series for that `deployment_id`.
 - [ ] `telemetron status` prints unit + endpoint + last flush timestamps.
 - [ ] `telemetron uninstall` cleanly removes the unit; re-running is a no-op.
 - [ ] CI is green on first PR.
@@ -312,14 +310,14 @@ writes on every tick. No IPC, just read-the-file.
 * Windows / macOS service lifecycle — Linux systemd only.
 * Packaging (rpm/deb) — release tarball is enough for v1.
 
-## Open questions for the implementer
+## Design decisions (resolved)
 
-Resolve these in the README before merging v1:
-
-1. How is `model.family` derivable from an openclaw session file?
-   (Collectors are expected to map their native session format to a small
-   bounded enum of model families; contributors should document their
-   mapping in `docs/configuration.md`.)
-2. Do we want TLS pinning on the exporter? (MVP: no, just cert validation.)
-3. Where should `telemetron status` store its cache? (Proposed:
-   `/var/lib/telemetron/status.json`.)
+- **Model family mapping.** Collectors map their native session format to a
+  small bounded enum of model families (e.g. `bedrock`, `anthropic`, `openai`,
+  `openclaw`, `unknown`). Contributors should document their mapping in
+  [configuration.md](configuration.md). See `internal/openclaw/derive.go` for
+  the reference implementation.
+- **TLS pinning.** Not in scope; `telemetron` relies on standard cert
+  validation. `insecure_endpoint: true` is only for local testing.
+- **Status cache.** Stored at `<state_dir>/status.json` — on Linux that is
+  `/var/lib/telemetron/status.json`, on macOS `~/.local/share/telemetron/status.json`.

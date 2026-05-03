@@ -1,12 +1,28 @@
+# Build artifacts
 /telemetron
 /lokiotel
 /dist/
 /tmp/
 /vendor/
 *.log
-.env
-coverage.out
-coverage.html
 *.test
 *.prof
+coverage.out
+coverage.html
+
+# Local secrets / config scratch (never commit)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+/token
+/tokens
+/telemetron.token
+/secrets/
+
+# IDE / OS noise
 .codex
+.idea/
+.vscode/
+.DS_Store

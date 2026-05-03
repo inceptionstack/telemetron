@@ -17,20 +17,38 @@ Modern coding agents leave rich local state behind, but shipping that state raw 
 
 ## Install
 
-1. Go install:
+### One-line installer (recommended)
+
+Downloads the latest Linux/macOS (amd64/arm64) release tarball from GitHub,
+verifies its SHA-256 against the published `checksums.txt`, and installs the
+binary into `$HOME/.local/bin/telemetron`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/inceptionstack/telemetron/main/install.sh | sh
+```
+
+The script is [POSIX shell](install.sh) and uses only `curl`, `tar`,
+`sha256sum` (or `shasum`), and `uname`. It does **not** configure the systemd
+service; for that, run `telemetron install --help` after the binary is on
+your `PATH`.
+
+Environment overrides:
+
+- `TELEMETRON_VERSION` — pin a specific release tag (default: latest)
+- `TELEMETRON_PREFIX` — install root (default: `$HOME/.local`)
+- `TELEMETRON_REPO` — owner/repo (default: `inceptionstack/telemetron`)
+
+### Alternatives
+
+1. `go install`:
 
    ```bash
    go install github.com/inceptionstack/telemetron/cmd/telemetron@latest
    ```
 
-2. Prebuilt binaries:
+2. Manual download from [Releases](https://github.com/inceptionstack/telemetron/releases):
 
-   Download the matching archive from GitHub Releases for:
-
-   - `linux/amd64`
-   - `linux/arm64`
-   - `darwin/amd64`
-   - `darwin/arm64`
+   - `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`
 
 3. From source:
 
@@ -42,32 +60,46 @@ Modern coding agents leave rich local state behind, but shipping that state raw 
 
 ## Quickstart
 
-This example installs `telemetron` against a generic OTLP/HTTP endpoint. Replace the token value and session directory for your host.
+After `install.sh` (or any of the alternatives above) puts `telemetron` on
+your `PATH`, wire it up to an OTLP/HTTP endpoint. Replace the token value,
+session directory, and endpoint for your environment.
 
 ```bash
-git clone https://github.com/inceptionstack/telemetron.git
-cd telemetron
-make build
-
 sudo install -d -m 0755 /etc/telemetron
 printf '%s\n' 'replace-with-your-bearer-token' | sudo tee /etc/telemetron/token >/dev/null
 sudo chmod 0400 /etc/telemetron/token
 
-# The install command reads the token from /etc/telemetron/token by default.
+# telemetron install reads the token from /etc/telemetron/token by default.
 # Avoid passing --token on the CLI in production; it leaks into shell
 # history and the kernel process list.
-sudo ./telemetron install \
+sudo telemetron install \
   --endpoint https://your-otlp-gateway.example.com/v1/metrics \
   --mode openclaw \
   --session-dir "$HOME/.openclaw/agents/main/sessions" \
   --deployment-id dev-laptop \
   --tier development
 
-./telemetron status
+telemetron status
 ```
 
 For macOS, run `telemetron start --config ~/.config/telemetron/config.yaml` directly or under `launchd`. See [docs/macos.md](docs/macos.md).
 
+## Uninstall
+
+If you installed via the one-line installer, remove the binary:
+
+```bash
+rm -f "$HOME/.local/bin/telemetron"
+```
+
+If you installed the systemd service via `telemetron install`, remove it first
+(the config and state files are left on disk for safety):
+
+```bash
+sudo telemetron uninstall               # stop + disable + remove the unit
+sudo rm -rf /etc/telemetron             # config + token (optional)
+sudo rm -rf /var/lib/telemetron         # durable offsets + status (optional)
+```
 ## Configuration
 
 The full reference lives in [docs/configuration.md](docs/configuration.md). A complete example:
@@ -167,6 +199,11 @@ Note: environment variables set in the interactive shell that ran the `lowkey` i
 ## Status
 
 `alpha` for `v0.2`.
+
+## Reporting issues
+
+- **Bugs / feature requests:** [open a GitHub issue](https://github.com/inceptionstack/telemetron/issues/new/choose) using one of the templates.
+- **Security vulnerabilities:** see [SECURITY.md](SECURITY.md) — do **not** file public issues for anything involving token exposure or telemetry content leakage.
 
 ## License
 
