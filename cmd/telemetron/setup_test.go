@@ -90,6 +90,97 @@ func TestResolveInputs_FlagOverridesWin(t *testing.T) {
 	}
 }
 
+func TestResolveInputs_ReloadsSessionDirAndRunAsFromExistingConfig(t *testing.T) {
+	resetEnv(t)
+	configPath := t.TempDir() + "/config.yaml"
+	t.Setenv("TELEMETRON_CONFIG", configPath)
+	if err := os.WriteFile(configPath, []byte(`
+endpoint: https://existing.example/v1/metrics
+mode: openclaw
+run_as: existing-user
+declared:
+  deployment_id: existing-deployment
+  tier: production
+openclaw:
+  session_dir: /existing/sessions
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r, _, err := resolveInputs(&setupFlags{}, agentdetect.Detection{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.sessionDir != "/existing/sessions" {
+		t.Fatalf("want existing session dir, got %q", r.sessionDir)
+	}
+	if r.runAs != "existing-user" {
+		t.Fatalf("want existing run-as, got %q", r.runAs)
+	}
+}
+
+func TestResolveDetection_FailsFastForRootWithoutSudoUserWhenCandidatesNotUnique(t *testing.T) {
+	resetEnv(t)
+
+	prevPlatform := setupPlatform
+	prevGeteuid := setupGeteuid
+	prevFind := findOpenClawMainCandidates
+	t.Cleanup(func() {
+		setupPlatform = prevPlatform
+		setupGeteuid = prevGeteuid
+		findOpenClawMainCandidates = prevFind
+	})
+
+	setupPlatform = "linux"
+	setupGeteuid = func() int { return 0 }
+	findOpenClawMainCandidates = func(platform, fsRoot string) ([]agentdetect.HomeCandidate, error) {
+		return []agentdetect.HomeCandidate{
+			{RunAsUser: "alice", AgentName: "main", SessionDir: "/home/alice/.openclaw/agents/main/sessions"},
+			{RunAsUser: "bob", AgentName: "main", SessionDir: "/home/bob/.openclaw/agents/main/sessions"},
+		}, nil
+	}
+
+	_, _, err := resolveDetection(&setupFlags{})
+	if err == nil {
+		t.Fatal("expected resolveDetection to fail")
+	}
+	if err.Error() != unresolvedRootSessionHint {
+		t.Fatalf("unexpected error: %q", err)
+	}
+}
+
+func TestResolveDetection_UsesUniqueRootHomeCandidate(t *testing.T) {
+	resetEnv(t)
+
+	prevPlatform := setupPlatform
+	prevGeteuid := setupGeteuid
+	prevFind := findOpenClawMainCandidates
+	t.Cleanup(func() {
+		setupPlatform = prevPlatform
+		setupGeteuid = prevGeteuid
+		findOpenClawMainCandidates = prevFind
+	})
+
+	setupPlatform = "linux"
+	setupGeteuid = func() int { return 0 }
+	findOpenClawMainCandidates = func(platform, fsRoot string) ([]agentdetect.HomeCandidate, error) {
+		return []agentdetect.HomeCandidate{
+			{RunAsUser: "alice", AgentName: "main", SessionDir: "/home/alice/.openclaw/agents/main/sessions"},
+		}, nil
+	}
+
+	d, ambiguous, err := resolveDetection(&setupFlags{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ambiguous) != 0 {
+		t.Fatalf("unexpected ambiguous candidates: %+v", ambiguous)
+	}
+	if d.RunAsUser != "alice" || d.SessionDir != "/home/alice/.openclaw/agents/main/sessions" || d.Mode != "openclaw" {
+		t.Fatalf("unexpected detection: %+v", d)
+	}
+}
+
 func TestDefaultDeploymentID(t *testing.T) {
 	if got := defaultDeploymentID("main"); !startsWithLokiPrefix(got) {
 		t.Errorf("want 'loki@...', got %q", got)

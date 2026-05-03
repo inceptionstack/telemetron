@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 )
@@ -37,6 +38,14 @@ type Detection struct {
 
 // Candidate is one possible resolution when detection is ambiguous.
 type Candidate struct {
+	AgentName  string
+	SessionDir string
+}
+
+// HomeCandidate is a user-home-based candidate discovered from the
+// standard OpenClaw layout.
+type HomeCandidate struct {
+	RunAsUser  string
 	AgentName  string
 	SessionDir string
 }
@@ -151,4 +160,94 @@ func resolveUser(explicit string) (string, error) {
 		return "", err
 	}
 	return u.Username, nil
+}
+
+// FindOpenClawMainCandidates scans plausible home directories for a
+// single-agent OpenClaw layout rooted at `.openclaw/agents/main/sessions`.
+// It is used by root-first installers that do not have $SUDO_USER.
+func FindOpenClawMainCandidates(platform, fsRoot string) ([]HomeCandidate, error) {
+	if platform == "" {
+		platform = runtime.GOOS
+	}
+
+	homeDirs, err := plausibleHomeDirs(platform, fsRoot)
+	if err != nil {
+		return nil, err
+	}
+
+	candidates := make([]HomeCandidate, 0, len(homeDirs))
+	for _, homeDir := range homeDirs {
+		runAsUser, ok := runAsUserForHome(platform, homeDir)
+		if !ok {
+			continue
+		}
+		sessionDir := filepath.Join(homeDir, ".openclaw", "agents", "main", "sessions")
+		info, err := os.Stat(filepath.Join(fsRoot, sessionDir))
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		candidates = append(candidates, HomeCandidate{
+			RunAsUser:  runAsUser,
+			AgentName:  "main",
+			SessionDir: sessionDir,
+		})
+	}
+
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].RunAsUser == candidates[j].RunAsUser {
+			return candidates[i].SessionDir < candidates[j].SessionDir
+		}
+		return candidates[i].RunAsUser < candidates[j].RunAsUser
+	})
+	return candidates, nil
+}
+
+func plausibleHomeDirs(platform, fsRoot string) ([]string, error) {
+	var roots []string
+	switch platform {
+	case "darwin":
+		roots = []string{"/Users"}
+	default:
+		roots = []string{"/home"}
+	}
+
+	homeDirs := make([]string, 0, 8)
+	for _, root := range roots {
+		entries, err := os.ReadDir(filepath.Join(fsRoot, root))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("read %s: %w", root, err)
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			homeDirs = append(homeDirs, filepath.Join(root, entry.Name()))
+		}
+	}
+	if platform != "darwin" {
+		homeDirs = append(homeDirs, "/root")
+	}
+	sort.Strings(homeDirs)
+	return homeDirs, nil
+}
+
+func runAsUserForHome(platform, homeDir string) (string, bool) {
+	trimmed := strings.Trim(filepath.Clean(homeDir), string(filepath.Separator))
+	if trimmed == "" {
+		return "", false
+	}
+	parts := strings.Split(trimmed, string(filepath.Separator))
+	if len(parts) == 1 && parts[0] == "root" {
+		return "root", true
+	}
+	if platform == "darwin" && len(parts) == 2 && parts[0] == "Users" {
+		return parts[1], true
+	}
+	if platform != "darwin" && len(parts) == 2 && parts[0] == "home" {
+		return parts[1], true
+	}
+	return "", false
 }

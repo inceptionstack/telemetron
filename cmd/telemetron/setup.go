@@ -20,6 +20,14 @@ import (
 	"golang.org/x/term"
 )
 
+var (
+	setupPlatform              = runtime.GOOS
+	setupGeteuid               = os.Geteuid
+	findOpenClawMainCandidates = agentdetect.FindOpenClawMainCandidates
+)
+
+const unresolvedRootSessionHint = "cannot resolve session-dir under UID 0 with no $SUDO_USER set.\nPass --run-as <user> --session-dir <path>, or set TELEMETRON_RUN_AS /\nTELEMETRON_SESSION_DIR."
+
 // setupFlags collects everything the setup command accepts. The same
 // struct is used for both non-interactive and interactive paths; prompts
 // only fire to fill unresolved required fields when a TTY is available
@@ -125,7 +133,7 @@ func (e *setupEmitter) errorEnvelope(code string, missing []string, hint string,
 func runSetup(cmd *cobra.Command, f *setupFlags) error {
 	emitter := &setupEmitter{json: f.jsonOutput, out: cmd.OutOrStdout(), err: cmd.ErrOrStderr()}
 
-	if runtime.GOOS == "darwin" {
+	if setupPlatform == "darwin" {
 		return emitter.errorEnvelope(setupevents.ErrPreconditionFailed, nil,
 			"telemetron setup is not supported on macOS; see docs/macos.md", nil)
 	}
@@ -290,6 +298,22 @@ func resolveDetection(f *setupFlags) (agentdetect.Detection, []agentdetect.Candi
 		}, nil, nil
 	}
 
+	if shouldUseRootHomeScan(runAs, sessionDir) {
+		candidates, err := findOpenClawMainCandidates(setupPlatform, "")
+		if err != nil {
+			return agentdetect.Detection{}, nil, err
+		}
+		if len(candidates) != 1 {
+			return agentdetect.Detection{}, nil, errors.New(unresolvedRootSessionHint)
+		}
+		return agentdetect.Detection{
+			Mode:       "openclaw",
+			SessionDir: candidates[0].SessionDir,
+			RunAsUser:  candidates[0].RunAsUser,
+			AgentName:  candidates[0].AgentName,
+		}, nil, nil
+	}
+
 	d, err := agentdetect.DetectOpenClaw(agentdetect.Options{User: runAs})
 	if err != nil {
 		return agentdetect.Detection{}, nil, err
@@ -308,6 +332,17 @@ func resolveDetection(f *setupFlags) (agentdetect.Detection, []agentdetect.Candi
 		d.RunAsUser = runAs
 	}
 	return d, nil, nil
+}
+
+func shouldUseRootHomeScan(runAs, sessionDir string) bool {
+	if runAs != "" || sessionDir != "" {
+		return false
+	}
+	if setupGeteuid() != 0 {
+		return false
+	}
+	sudoUser := strings.TrimSpace(os.Getenv("SUDO_USER"))
+	return sudoUser == ""
 }
 
 func resolveInputs(f *setupFlags, d agentdetect.Detection) (resolvedSetup, []string, error) {
@@ -330,6 +365,12 @@ func resolveInputs(f *setupFlags, d agentdetect.Detection) (resolvedSetup, []str
 		}
 		if r.mode == "" {
 			r.mode = existing.Mode
+		}
+		if r.sessionDir == "" {
+			r.sessionDir = existingSessionDir(*existing)
+		}
+		if r.runAs == "" {
+			r.runAs = existing.RunAs
 		}
 		if r.deploymentID == "" {
 			r.deploymentID = existing.Declared.DeploymentID
@@ -454,6 +495,7 @@ func buildConfig(r resolvedSetup) (config.Config, error) {
 		"endpoint":               r.endpoint,
 		"mode":                   r.mode,
 		"insecure_endpoint":      r.insecureEndpoint,
+		"run_as":                 r.runAs,
 		"declared.deployment_id": r.deploymentID,
 		"declared.tier":          r.tier,
 	}
@@ -470,6 +512,16 @@ func buildConfig(r resolvedSetup) (config.Config, error) {
 	}
 	cfg.Collectors[cfg.Mode] = resolvedRaw
 	return cfg, nil
+}
+
+func existingSessionDir(cfg config.Config) string {
+	raw := cfg.Collectors[cfg.Mode]
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return ""
+	}
+	sessionDir, _ := m["session_dir"].(string)
+	return sessionDir
 }
 
 // --- verifyFirstFlush is intentionally simple. It waits for the status
