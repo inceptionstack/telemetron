@@ -148,6 +148,12 @@ Missing required inputs (`endpoint`, `token`) and ambiguous detection
 (more than one agent slot without `main`) fail fast with a structured
 error envelope — never silent fallbacks.
 
+### Anonymous enrollment
+
+If you run `telemetron setup` with an endpoint but without any token source, `telemetron` can anonymously enroll itself and stage a token automatically. The enrollment request sends only `install_id`, `machine_id`, `os`, `arch`, `source`, and `telemetron_version`; the flush path then includes `install_id` as a resource attribute. Details are documented in [docs/privacy.md](docs/privacy.md).
+
+To skip this path entirely, set `TELEMETRON_NO_AUTO_ENROLL=1` before running `setup`.
+
 ### Low-level install (power users)
 
 `telemetron install` remains available for CI or tooling that already

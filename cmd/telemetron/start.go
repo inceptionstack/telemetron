@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -16,6 +17,8 @@ import (
 	"github.com/inceptionstack/telemetron/internal/telemetry"
 	"github.com/spf13/cobra"
 )
+
+var newOTLPExporter = otlp.NewExporter
 
 func newStartCmd() *cobra.Command {
 	return &cobra.Command{
@@ -47,16 +50,29 @@ func newStartCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			exporter := otlp.NewExporter(cfg.Endpoint, token, map[string]string{
-				"deployment_id": cfg.Declared.DeploymentID,
-				"tier":          cfg.Declared.Tier,
-				"environment":   cfg.Declared.Environment,
-				"pack_version":  cfg.Declared.PackVersion,
-			}, nil)
+			exporter := newOTLPExporter(cfg.Endpoint, token, declaredForExporter(cfg, logger), nil)
 			sink := otlp.NewSink(exporter, logger, store, cfg.Mode)
 			ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 			defer cancel()
 			return collector.Start(ctx, sink)
 		},
 	}
+}
+
+func declaredForExporter(cfg config.Config, logger *slog.Logger) map[string]string {
+	declared := map[string]string{
+		"deployment_id": cfg.Declared.DeploymentID,
+		"tier":          cfg.Declared.Tier,
+		"environment":   cfg.Declared.Environment,
+		"pack_version":  cfg.Declared.PackVersion,
+	}
+	installID, err := readInstallID(setupInstallIDPath)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			logger.Warn("install_id unavailable; continuing without resource attribute", "path", setupInstallIDPath, "error", err)
+		}
+		return declared
+	}
+	declared["install_id"] = installID
+	return declared
 }

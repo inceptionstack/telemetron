@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -205,6 +206,11 @@ func runSetup(cmd *cobra.Command, f *setupFlags) error {
 		}
 	}
 
+	if shouldAttemptAutoEnroll(resolved) && autoEnrollDisabled() {
+		emitter.info("auto-enroll skipped because TELEMETRON_NO_AUTO_ENROLL=1; telemetron service was not started")
+		return nil
+	}
+
 	emitter.emit(setupevents.EventConfigResolved, map[string]any{
 		"endpoint":      resolved.endpoint,
 		"mode":          resolved.mode,
@@ -244,15 +250,14 @@ func runSetup(cmd *cobra.Command, f *setupFlags) error {
 	}
 
 	// --- 4. Materialise config + install -----------------------------------
-	token, tokenSource, err := loadToken(resolved)
-	if err != nil {
-		return emitter.errorEnvelope(setupevents.ErrTokenReadFailed, nil,
-			"check --token-file / TELEMETRON_TOKEN_FILE / TELEMETRON_TOKEN", err)
-	}
-
 	cfg, err := buildConfig(resolved)
 	if err != nil {
 		return emitter.errorEnvelope(setupevents.ErrInvalidConfig, nil, "", err)
+	}
+	token, tokenSource, err := loadTokenOrEnroll(context.Background(), resolved, cfg)
+	if err != nil {
+		return emitter.errorEnvelope(setupevents.ErrTokenReadFailed, nil,
+			"check --token-file / TELEMETRON_TOKEN_FILE / TELEMETRON_TOKEN or set TELEMETRON_NO_AUTO_ENROLL=1", err)
 	}
 
 	unchanged, err := configStateUnchanged(cfg, token)
@@ -421,6 +426,9 @@ func resolveInputs(f *setupFlags, d agentdetect.Detection) (resolvedSetup, []str
 		if r.endpoint == "" {
 			r.endpoint = existing.Endpoint
 		}
+		if r.tokenFile == "" {
+			r.tokenFile = existing.TokenFile
+		}
 		if r.mode == "" {
 			r.mode = existing.Mode
 		}
@@ -452,7 +460,7 @@ func resolveInputs(f *setupFlags, d agentdetect.Detection) (resolvedSetup, []str
 	if r.endpoint == "" {
 		missing = append(missing, "endpoint")
 	}
-	if r.tokenFile == "" && r.tokenFromEnv == "" && !existingTokenFilePresent() {
+	if !shouldAttemptAutoEnroll(r) && r.tokenFile == "" && r.tokenFromEnv == "" && !existingTokenFilePresent() {
 		missing = append(missing, "token")
 	}
 	return r, missing, nil
@@ -508,34 +516,16 @@ func renderSummary(r resolvedSetup) string {
 		fmt.Fprintf(&b, "  token file:    %s (%s)\n", r.tokenFile, tokenSource)
 	} else if r.tokenFromEnv != "" {
 		b.WriteString("  token source:  TELEMETRON_TOKEN (env)\n")
+	} else if shouldAttemptAutoEnroll(r) {
+		fmt.Fprintf(&b, "  token source:  auto-enroll via %s\n", firstNonEmpty(strings.TrimSpace(os.Getenv("TELEMETRON_ENROLL_ENDPOINT")), DefaultEnrollEndpoint))
 	} else {
 		b.WriteString("  token source:  existing /etc/telemetron/token\n")
 	}
 	return b.String()
 }
 
-func loadToken(r resolvedSetup) (string, string, error) {
-	if r.tokenFile != "" {
-		data, err := os.ReadFile(r.tokenFile)
-		if err != nil {
-			return "", "", err
-		}
-		return strings.TrimSpace(string(data)), "token-file", nil
-	}
-	if r.tokenFromEnv != "" {
-		return strings.TrimSpace(r.tokenFromEnv), "env", nil
-	}
-	// Fall back to any existing token file on disk.
-	existingTokenPath := "/etc/telemetron/token"
-	data, err := os.ReadFile(existingTokenPath)
-	if err != nil {
-		return "", "", err
-	}
-	return strings.TrimSpace(string(data)), "existing", nil
-}
-
 func existingTokenFilePresent() bool {
-	_, err := os.Stat("/etc/telemetron/token")
+	_, err := os.Stat(setupTokenPath)
 	return err == nil
 }
 

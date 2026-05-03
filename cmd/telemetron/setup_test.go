@@ -5,6 +5,8 @@ package main
 import (
 	"bytes"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/inceptionstack/telemetron/internal/agentdetect"
 	"github.com/inceptionstack/telemetron/internal/config"
+	"github.com/inceptionstack/telemetron/internal/enroll"
 	"github.com/inceptionstack/telemetron/internal/service"
 	"github.com/inceptionstack/telemetron/internal/status"
 )
@@ -383,6 +386,126 @@ func TestRunSetup_EmitsProgressSteps(t *testing.T) {
 	}
 }
 
+func TestRunSetup_AutoEnrollOptOutSkipsServiceStart(t *testing.T) {
+	resetEnv(t)
+	t.Setenv("TELEMETRON_NO_AUTO_ENROLL", "1")
+	t.Setenv("TELEMETRON_CONFIG", t.TempDir()+"/config.yaml")
+
+	prevPlatform := setupPlatform
+	prevGeteuid := setupGeteuid
+	prevPrecondition := setupServicePrecondition
+	prevNewService := newSetupService
+	prevSetupTokenPath := setupTokenPath
+	t.Cleanup(func() {
+		setupPlatform = prevPlatform
+		setupGeteuid = prevGeteuid
+		setupServicePrecondition = prevPrecondition
+		newSetupService = prevNewService
+		setupTokenPath = prevSetupTokenPath
+	})
+
+	setupPlatform = "linux"
+	setupGeteuid = func() int { return 1000 }
+	setupServicePrecondition = func() error { return nil }
+	setupTokenPath = t.TempDir() + "/missing-token"
+	newSetupService = func() service.Service {
+		t.Fatal("service should not be constructed when auto-enroll is opted out")
+		return nil
+	}
+
+	cmd := newSetupCmd()
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	err := runSetup(cmd, &setupFlags{
+		nonInteractive: true,
+		yes:            true,
+		endpoint:       "https://example.test/v1/metrics",
+		mode:           "openclaw",
+		sessionDir:     "/tmp/sessions",
+		runAs:          "alice",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "TELEMETRON_NO_AUTO_ENROLL=1") {
+		t.Fatalf("expected opt-out message, got %q", stdout.String())
+	}
+}
+
+func TestRunSetup_AutoEnrollUsesEnrolledToken(t *testing.T) {
+	resetEnv(t)
+	t.Setenv("TELEMETRON_CONFIG", t.TempDir()+"/config.yaml")
+	enrolledToken := "lpk_enroll_" + strings.Repeat("0123456789abcdef", 4)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"token":"` + enrolledToken + `","install_id":"550e8400-e29b-41d4-a716-446655440000"}`))
+	}))
+	defer server.Close()
+
+	prevPlatform := setupPlatform
+	prevGeteuid := setupGeteuid
+	prevPrecondition := setupServicePrecondition
+	prevNewService := newSetupService
+	prevReadStatus := readSetupStatus
+	prevNewEnrollClient := newEnrollClient
+	prevReadOrGenerateInstallID := readOrGenerateInstallID
+	prevComputeMachineID := computeMachineID
+	prevSetupTokenPath := setupTokenPath
+	t.Cleanup(func() {
+		setupPlatform = prevPlatform
+		setupGeteuid = prevGeteuid
+		setupServicePrecondition = prevPrecondition
+		newSetupService = prevNewService
+		readSetupStatus = prevReadStatus
+		newEnrollClient = prevNewEnrollClient
+		readOrGenerateInstallID = prevReadOrGenerateInstallID
+		computeMachineID = prevComputeMachineID
+		setupTokenPath = prevSetupTokenPath
+	})
+
+	setupPlatform = "linux"
+	setupGeteuid = func() int { return 1000 }
+	setupServicePrecondition = func() error { return nil }
+	setupTokenPath = t.TempDir() + "/missing-token"
+	readSetupStatus = func() (status.Snapshot, error) {
+		return status.Snapshot{LastFlushAt: time.Now().UTC(), LastHTTPStatus: 200}, nil
+	}
+	newEnrollClient = func(endpoint string, httpClient *http.Client) *enroll.Client {
+		return enroll.NewClient(server.URL, server.Client())
+	}
+	readOrGenerateInstallID = func(path string) (string, error) {
+		return "550e8400-e29b-41d4-a716-446655440000", nil
+	}
+	computeMachineID = func() (string, error) {
+		return "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", nil
+	}
+
+	fake := &capturingSetupService{}
+	newSetupService = func() service.Service { return fake }
+
+	cmd := newSetupCmd()
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	err := runSetup(cmd, &setupFlags{
+		nonInteractive: true,
+		yes:            true,
+		endpoint:       "https://example.test/v1/metrics",
+		mode:           "openclaw",
+		sessionDir:     "/tmp/sessions",
+		runAs:          "alice",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.token != enrolledToken {
+		t.Fatalf("unexpected token passed to service: %q", fake.token)
+	}
+}
+
 type fakeSetupService struct{}
 
 func (fakeSetupService) Install(config.Config, string) error           { return nil }
@@ -390,6 +513,19 @@ func (fakeSetupService) InstallAs(config.Config, string, string) error { return 
 func (fakeSetupService) Uninstall() error                              { return nil }
 func (fakeSetupService) EnableAndStart() error                         { return nil }
 func (fakeSetupService) ProbeStatus() (service.Status, error)          { return service.Status{}, nil }
+
+type capturingSetupService struct {
+	token string
+}
+
+func (s *capturingSetupService) Install(config.Config, string) error { return nil }
+func (s *capturingSetupService) InstallAs(_ config.Config, token, _ string) error {
+	s.token = token
+	return nil
+}
+func (s *capturingSetupService) Uninstall() error                     { return nil }
+func (s *capturingSetupService) EnableAndStart() error                { return nil }
+func (s *capturingSetupService) ProbeStatus() (service.Status, error) { return service.Status{}, nil }
 
 func TestDefaultDeploymentID(t *testing.T) {
 	if got := defaultDeploymentID("main"); !startsWithLokiPrefix(got) {
@@ -466,7 +602,7 @@ func resetEnv(t *testing.T) {
 		"TELEMETRON_ENDPOINT", "TELEMETRON_TOKEN", "TELEMETRON_TOKEN_FILE",
 		"TELEMETRON_MODE", "TELEMETRON_SESSION_DIR", "TELEMETRON_RUN_AS",
 		"TELEMETRON_DEPLOYMENT_ID", "TELEMETRON_TIER", "TELEMETRON_HEALTH_TIMEOUT",
-		"SUDO_USER",
+		"TELEMETRON_NO_AUTO_ENROLL", "TELEMETRON_ENROLL_ENDPOINT", "SUDO_USER",
 	} {
 		t.Setenv(k, "")
 	}
