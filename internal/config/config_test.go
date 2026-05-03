@@ -55,8 +55,8 @@ testmode:
 `
 	require.NoError(t, os.WriteFile(configPath, []byte(configYAML), 0o644))
 
-	t.Setenv("CLAWTELLO_ENDPOINT", "https://env.example/v1/metrics")
-	t.Setenv("CLAWTELLO_MODE", "testmode")
+	t.Setenv("TELEMETRON_ENDPOINT", "https://env.example/v1/metrics")
+	t.Setenv("TELEMETRON_MODE", "testmode")
 
 	cfg, err := Load(LoadOptions{
 		ConfigPath: configPath,

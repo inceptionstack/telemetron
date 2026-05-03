@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a reproducible problem in clawtello
+about: Report a reproducible problem in telemetron
 title: "bug: "
 labels: ["bug"]
 assignees: []
@@ -26,7 +26,7 @@ What happened instead?
 
 ## Environment
 
-- `clawtello` version:
+- `telemetron` version:
 - OS:
 - install method:
 - collector mode:

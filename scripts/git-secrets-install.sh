@@ -22,7 +22,7 @@ git secrets --install --force
 # Register the AWS pattern set.
 git secrets --register-aws
 
-# clawtello-specific bearer token patterns.
+# telemetron-specific bearer token patterns.
 git secrets --add 'lpk_live_[0-9a-f]{32}'
 git secrets --add 'lpk_[a-z]+_[0-9a-f]+'
 

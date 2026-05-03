@@ -5,8 +5,8 @@ package collectorapi
 import (
 	"testing"
 
-	"github.com/inceptionstack/clawtello/internal/config"
-	"github.com/inceptionstack/clawtello/internal/status"
+	"github.com/inceptionstack/telemetron/internal/config"
+	"github.com/inceptionstack/telemetron/internal/status"
 	"github.com/stretchr/testify/require"
 )
 

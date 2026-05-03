@@ -8,8 +8,8 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/inceptionstack/clawtello/internal/config"
-	"github.com/inceptionstack/clawtello/internal/service"
+	"github.com/inceptionstack/telemetron/internal/config"
+	"github.com/inceptionstack/telemetron/internal/service"
 	"github.com/spf13/cobra"
 )
 
@@ -27,15 +27,15 @@ func newInstallCmd() *cobra.Command {
 		Short: "Install the service and start it",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if runtime.GOOS == "darwin" {
-				fmt.Fprintln(cmd.ErrOrStderr(), "clawtello install is not supported on macOS.")
-				fmt.Fprintln(cmd.ErrOrStderr(), "You can still run `clawtello start --config /path/to/config.yaml` directly or under launchd. See docs/macos.md.")
+				fmt.Fprintln(cmd.ErrOrStderr(), "telemetron install is not supported on macOS.")
+				fmt.Fprintln(cmd.ErrOrStderr(), "You can still run `telemetron start --config /path/to/config.yaml` directly or under launchd. See docs/macos.md.")
 				return fmt.Errorf("install unsupported on macOS")
 			}
 
 			overrides := map[string]any{
-				"endpoint":               firstNonEmpty(endpoint, os.Getenv("CLAWTELLO_ENDPOINT")),
-				"mode":                   firstNonEmpty(mode, os.Getenv("CLAWTELLO_MODE")),
-				"log_level":              firstNonEmpty(logLevel, os.Getenv("CLAWTELLO_LOG_LEVEL")),
+				"endpoint":               firstNonEmpty(endpoint, os.Getenv("TELEMETRON_ENDPOINT")),
+				"mode":                   firstNonEmpty(mode, os.Getenv("TELEMETRON_MODE")),
+				"log_level":              firstNonEmpty(logLevel, os.Getenv("TELEMETRON_LOG_LEVEL")),
 				"insecure_endpoint":      insecureEndpoint,
 				"declared.deployment_id": deploymentID,
 				"declared.tier":          tier,
@@ -59,7 +59,7 @@ func newInstallCmd() *cobra.Command {
 			cfg.Collectors[cfg.Mode] = resolvedRaw
 
 			if token == "" {
-				token = os.Getenv("CLAWTELLO_TOKEN")
+				token = os.Getenv("TELEMETRON_TOKEN")
 			}
 			if token == "" {
 				if existing, err := cfg.Token(); err == nil {
@@ -67,7 +67,7 @@ func newInstallCmd() *cobra.Command {
 				}
 			}
 			if token == "" {
-				return fmt.Errorf("token is required via --token, CLAWTELLO_TOKEN, or existing token file")
+				return fmt.Errorf("token is required via --token, TELEMETRON_TOKEN, or existing token file")
 			}
 
 			svc := service.New()
@@ -89,9 +89,9 @@ func newInstallCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&endpoint, "endpoint", "", "OTLP endpoint (env: CLAWTELLO_ENDPOINT, config: endpoint)")
-	cmd.Flags().StringVar(&token, "token", "", "bearer token (env: CLAWTELLO_TOKEN, written to token_file)")
-	cmd.Flags().StringVar(&mode, "mode", "", "collection mode (env: CLAWTELLO_MODE, config: mode)")
+	cmd.Flags().StringVar(&endpoint, "endpoint", "", "OTLP endpoint (env: TELEMETRON_ENDPOINT, config: endpoint)")
+	cmd.Flags().StringVar(&token, "token", "", "bearer token (env: TELEMETRON_TOKEN, written to token_file)")
+	cmd.Flags().StringVar(&mode, "mode", "", "collection mode (env: TELEMETRON_MODE, config: mode)")
 	cmd.Flags().StringVar(&deploymentID, "deployment-id", "", "deployment id (config: declared.deployment_id)")
 	cmd.Flags().StringVar(&tier, "tier", "", "internal|production|development|staging|unknown (config: declared.tier)")
 	cmd.Flags().StringVar(&sessionDir, "session-dir", "", "session directory (config: <mode>.session_dir)")

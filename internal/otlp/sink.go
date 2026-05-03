@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/inceptionstack/clawtello/internal/contract"
-	"github.com/inceptionstack/clawtello/internal/status"
+	"github.com/inceptionstack/telemetron/internal/contract"
+	"github.com/inceptionstack/telemetron/internal/status"
 )
 
 type FlushResult struct {

@@ -1,27 +1,27 @@
 # Operations
 
-These notes cover routine Linux service operation for `clawtello`.
+These notes cover routine Linux service operation for `telemetron`.
 
 ## Service files and drop-ins
 
-- Unit file: `/etc/systemd/system/clawtello.service`
-- Config file: `/etc/clawtello/config.yaml`
-- Token file: `/etc/clawtello/token`
-- State directory: `/var/lib/clawtello`
-- Systemd drop-ins: `/etc/systemd/system/clawtello.service.d/*.conf`
+- Unit file: `/etc/systemd/system/telemetron.service`
+- Config file: `/etc/telemetron/config.yaml`
+- Token file: `/etc/telemetron/token`
+- State directory: `/var/lib/telemetron`
+- Systemd drop-ins: `/etc/systemd/system/telemetron.service.d/*.conf`
 
 Example drop-in workflow:
 
 ```bash
-sudo install -d -m 0755 /etc/systemd/system/clawtello.service.d
-sudoedit /etc/systemd/system/clawtello.service.d/override.conf
+sudo install -d -m 0755 /etc/systemd/system/telemetron.service.d
+sudoedit /etc/systemd/system/telemetron.service.d/override.conf
 sudo systemctl daemon-reload
-sudo systemctl restart clawtello
+sudo systemctl restart telemetron
 ```
 
 ## Journald retention
 
-`clawtello` logs to journald by default. On hosts with long retention windows, consider a dedicated journald drop-in to cap disk usage.
+`telemetron` logs to journald by default. On hosts with long retention windows, consider a dedicated journald drop-in to cap disk usage.
 
 Example:
 
@@ -35,24 +35,24 @@ Apply with:
 
 ```bash
 sudo install -d -m 0755 /etc/systemd/journald.conf.d
-sudoedit /etc/systemd/journald.conf.d/clawtello.conf
+sudoedit /etc/systemd/journald.conf.d/telemetron.conf
 sudo systemctl restart systemd-journald
 ```
 
 ## Rolling tokens
 
-1. Write the new token to `/etc/clawtello/token`.
+1. Write the new token to `/etc/telemetron/token`.
 2. Set mode `0400`.
-3. Ensure ownership matches the `clawtello` service user on Linux.
+3. Ensure ownership matches the `telemetron` service user on Linux.
 4. Restart the service.
 
 Example:
 
 ```bash
-printf '%s\n' 'new-token' | sudo tee /etc/clawtello/token >/dev/null
-sudo chown clawtello:clawtello /etc/clawtello/token
-sudo chmod 0400 /etc/clawtello/token
-sudo systemctl restart clawtello
+printf '%s\n' 'new-token' | sudo tee /etc/telemetron/token >/dev/null
+sudo chown telemetron:telemetron /etc/telemetron/token
+sudo chmod 0400 /etc/telemetron/token
+sudo systemctl restart telemetron
 ```
 
 ## Observing status
@@ -60,10 +60,10 @@ sudo systemctl restart clawtello
 Useful commands:
 
 ```bash
-./clawtello status
-sudo systemctl status clawtello
-sudo journalctl -u clawtello -n 100 --no-pager
-sudo journalctl -u clawtello -f
+./telemetron status
+sudo systemctl status telemetron
+sudo journalctl -u telemetron -n 100 --no-pager
+sudo journalctl -u telemetron -f
 ```
 
 Look for:
@@ -89,7 +89,7 @@ Checklist:
 4. Restart the service after token rotation.
 5. Check whether the server is rejecting caller metadata or tenant routing.
 
-`clawtello` backs off after authorization failures, so repeated auth errors should be noisy but not request-storming.
+`telemetron` backs off after authorization failures, so repeated auth errors should be noisy but not request-storming.
 
 ## Disabling telemetry
 
@@ -98,15 +98,15 @@ Five opt-out signals honored, covering both standalone and lowkey-family deploym
 **Shared**
 - `DO_NOT_TRACK=1` — community standard. Truthy: `1|true|yes|on`.
 
-**clawtello-specific**
-- `CLAWTELLO_TELEMETRY=0` — falsy: `0|false|no|off`. Unset = enabled.
-- `~/.clawtello/telemetry-off` — marker file under the service user’s home.
+**telemetron-specific**
+- `TELEMETRON_TELEMETRY=0` — falsy: `0|false|no|off`. Unset = enabled.
+- `~/.telemetron/telemetry-off` — marker file under the service user’s home.
 
 **Lowkey-inherited**
 - `LOWKEY_TELEMETRY=0`
 - `~/.lowkey/telemetry-off`
 
-When any signal is present, `clawtello start` exits cleanly without loading config, reading the token, or opening any sockets.
+When any signal is present, `telemetron start` exits cleanly without loading config, reading the token, or opening any sockets.
 
 ### Env-var drop-in
 
@@ -115,23 +115,23 @@ When any signal is present, `clawtello start` exits cleanly without loading conf
 Environment=DO_NOT_TRACK=1
 ```
 
-Apply with `sudo systemctl daemon-reload && sudo systemctl restart clawtello`.
+Apply with `sudo systemctl daemon-reload && sudo systemctl restart telemetron`.
 
 ### Marker-file (preferred for lowkey deployments)
 
 Env vars set by the lowkey installer in the interactive shell do not propagate into systemd units. Use the marker file so the opt-out sticks across restarts:
 
 ```bash
-# Drop into the clawtello service user's home:
-sudo -u clawtello install -d -m 0700 ~clawtello/.clawtello
-sudo -u clawtello touch ~clawtello/.clawtello/telemetry-off
-sudo systemctl restart clawtello
+# Drop into the telemetron service user's home:
+sudo -u telemetron install -d -m 0700 ~telemetron/.telemetron
+sudo -u telemetron touch ~telemetron/.telemetron/telemetry-off
+sudo systemctl restart telemetron
 ```
 
 Or honor lowkey’s marker directly:
 
 ```bash
-sudo -u clawtello install -d -m 0700 ~clawtello/.lowkey
-sudo -u clawtello touch ~clawtello/.lowkey/telemetry-off
-sudo systemctl restart clawtello
+sudo -u telemetron install -d -m 0700 ~telemetron/.lowkey
+sudo -u telemetron touch ~telemetron/.lowkey/telemetry-off
+sudo systemctl restart telemetron
 ```

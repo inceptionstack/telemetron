@@ -1,15 +1,15 @@
 version: 2
 
-project_name: clawtello
+project_name: telemetron
 
 before:
   hooks:
     - go mod download
 
 builds:
-  - id: clawtello
-    main: ./cmd/clawtello
-    binary: clawtello
+  - id: telemetron
+    main: ./cmd/telemetron
+    binary: telemetron
     env:
       - CGO_ENABLED=0
     goos:

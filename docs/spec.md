@@ -1,8 +1,8 @@
-# clawtello — OTLP metrics sidecar for stateful agents
+# telemetron — OTLP metrics sidecar for stateful agents
 
 ## Purpose
 
-A single small Go binary `clawtello` that tails local session state from
+A single small Go binary `telemetron` that tails local session state from
 agent installation on the same host, reads that agent's local state, converts
 it to OTLP metrics, and ships them to a central OTLP ingester (today: our
 AWS API GW + Lambda ingester at
@@ -17,18 +17,18 @@ a session transcript to disk. One static Go binary (no venv, no pip),
 ## CLI shape
 
 ```
-clawtello install          # install as a systemd unit and start it
-clawtello uninstall        # stop + remove the systemd unit
-clawtello start            # foreground run (used by the systemd unit)
-clawtello status           # show unit state + last heartbeat + last export
-clawtello help | --help    # usage
-clawtello version          # build metadata
+telemetron install          # install as a systemd unit and start it
+telemetron uninstall        # stop + remove the systemd unit
+telemetron start            # foreground run (used by the systemd unit)
+telemetron status           # show unit state + last heartbeat + last export
+telemetron help | --help    # usage
+telemetron version          # build metadata
 ```
 
 Global flags:
 
 ```
---config <path>           # default /etc/clawtello/config.yaml
+--config <path>           # default /etc/telemetron/config.yaml
 --log-level <level>       # trace|debug|info|warn|error (default info)
 ```
 
@@ -48,7 +48,7 @@ existing config file, then fail loudly with a helpful message.
 
 ## Config file
 
-`/etc/clawtello/config.yaml` (created by `install`, editable by operator):
+`/etc/telemetron/config.yaml` (created by `install`, editable by operator):
 
 ```yaml
 # Collection style. v1 only supports "openclaw".
@@ -59,7 +59,7 @@ endpoint: https://your-otlp-gateway.example.com/v1/metrics
 
 # Path to a file containing the bearer token. Must be chmod 0600.
 # Never store the token inline in the YAML.
-token_file: /etc/clawtello/token
+token_file: /etc/telemetron/token
 
 # Per-mode settings. Unknown keys for the selected mode must be rejected.
 openclaw:
@@ -77,18 +77,18 @@ declared:
   deployment_id: mvp-002
   tier: internal
   environment: development
-  pack_version: clawtello-0.1
+  pack_version: telemetron-0.1
 ```
 
 Env-var overrides (these win over config file):
 
 ```
-CLAWTELLO_CONFIG              # override --config
-CLAWTELLO_ENDPOINT
-CLAWTELLO_TOKEN               # inline token (fallback if token_file missing)
-CLAWTELLO_TOKEN_FILE
-CLAWTELLO_MODE
-CLAWTELLO_LOG_LEVEL
+TELEMETRON_CONFIG              # override --config
+TELEMETRON_ENDPOINT
+TELEMETRON_TOKEN               # inline token (fallback if token_file missing)
+TELEMETRON_TOKEN_FILE
+TELEMETRON_MODE
+TELEMETRON_LOG_LEVEL
 ```
 
 ## Collection modes
@@ -111,7 +111,7 @@ Port of the existing `loki-pack-emitter.py` behaviour:
 
 1. Every `scan_interval`, list `*.jsonl` files under `session_dir`.
 2. For each file, remember the last byte offset processed in a durable
-   state file (`/var/lib/clawtello/openclaw.state.json`). New files start
+   state file (`/var/lib/telemetron/openclaw.state.json`). New files start
    at offset 0. Reuse-after-rotate: if file size < last offset, reset to 0.
 3. Tail the new bytes, decode each line as JSON, and emit:
    * `pack.session.start` once per new session (first time a session file
@@ -169,27 +169,27 @@ never ship unsanitary metrics.
 
 ## Daemon install
 
-`clawtello install`:
+`telemetron install`:
 
 1. Verify we're root (or running under sudo); bail with clean error otherwise.
-2. Copy the running binary to `/usr/local/bin/clawtello` (skip if already
+2. Copy the running binary to `/usr/local/bin/telemetron` (skip if already
    identical).
-3. Create `/etc/clawtello/` (0755) and write `config.yaml` if missing.
-4. Write the bearer token to `/etc/clawtello/token` (0400, owner `clawtello`
+3. Create `/etc/telemetron/` (0755) and write `config.yaml` if missing.
+4. Write the bearer token to `/etc/telemetron/token` (0400, owner `telemetron`
    if that user exists, else `root`).
-5. Install the systemd unit at `/etc/systemd/system/clawtello.service`:
+5. Install the systemd unit at `/etc/systemd/system/telemetron.service`:
 
 ```ini
 [Unit]
-Description=clawtello OTLP metrics sidecar
+Description=telemetron OTLP metrics sidecar
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=clawtello
-Group=clawtello
-ExecStart=/usr/local/bin/clawtello start --config /etc/clawtello/config.yaml
+User=telemetron
+Group=telemetron
+ExecStart=/usr/local/bin/telemetron start --config /etc/telemetron/config.yaml
 Restart=on-failure
 RestartSec=10
 # Don't leak secrets to journal.
@@ -198,7 +198,7 @@ ProtectSystem=strict
 ProtectHome=read-only
 PrivateTmp=true
 NoNewPrivileges=true
-ReadWritePaths=/var/lib/clawtello
+ReadWritePaths=/var/lib/telemetron
 StandardOutput=journal
 StandardError=journal
 
@@ -206,17 +206,17 @@ StandardError=journal
 WantedBy=multi-user.target
 ```
 
-6. Create the `clawtello` system user (no shell, home `/var/lib/clawtello`)
+6. Create the `telemetron` system user (no shell, home `/var/lib/telemetron`)
    if it doesn't exist.
-7. `systemctl daemon-reload && systemctl enable --now clawtello.service`.
+7. `systemctl daemon-reload && systemctl enable --now telemetron.service`.
 8. Print a one-line summary: endpoint, mode, deployment_id, unit status.
 
-`clawtello uninstall` reverses 5/7 and leaves the config + state files in
+`telemetron uninstall` reverses 5/7 and leaves the config + state files in
 place (idempotent, safe to re-run).
 
 ## Status command
 
-`clawtello status` should print (without hitting the network):
+`telemetron status` should print (without hitting the network):
 
 ```
 unit:          active (running) since 2026-05-02 22:10 UTC
@@ -226,7 +226,7 @@ deployment_id: mvp-002
 last flush:    2026-05-02 22:11:15 UTC (3s ago, 4 metrics)
 last heartbeat:2026-05-02 22:11:00 UTC (18s ago)
 session_dir:   $HOME/.openclaw/agents/main/sessions (103 files)
-state file:    /var/lib/clawtello/openclaw.state.json (32 sessions tracked)
+state file:    /var/lib/telemetron/openclaw.state.json (32 sessions tracked)
 ```
 
 Heartbeat / flush timestamps live in a tiny status file the main process
@@ -248,11 +248,11 @@ writes on every tick. No IPC, just read-the-file.
 
 ```
 /
-├── cmd/clawtello/main.go              # cobra root
-├── cmd/clawtello/install.go
-├── cmd/clawtello/uninstall.go
-├── cmd/clawtello/start.go
-├── cmd/clawtello/status.go
+├── cmd/telemetron/main.go              # cobra root
+├── cmd/telemetron/install.go
+├── cmd/telemetron/uninstall.go
+├── cmd/telemetron/start.go
+├── cmd/telemetron/status.go
 ├── internal/config/config.go         # YAML + env merge
 ├── internal/contract/allowlist.go    # metric names, attr keys, enums
 ├── internal/contract/normalize.go    # enum guarding
@@ -291,15 +291,15 @@ writes on every tick. No IPC, just read-the-file.
 
 ## What done looks like (ship checklist)
 
-- [ ] `go build ./cmd/clawtello` produces a static arm64+amd64 binary.
-- [ ] `clawtello install --endpoint ... --token ... --mode openclaw
+- [ ] `go build ./cmd/telemetron` produces a static arm64+amd64 binary.
+- [ ] `telemetron install --endpoint ... --token ... --mode openclaw
         --deployment-id mvp-002 --tier internal` on a fresh EC2 installs a
   working systemd unit within 5s.
-- [ ] `journalctl -u clawtello` shows heartbeat flushes every 15s, HTTP 200.
+- [ ] `journalctl -u telemetron` shows heartbeat flushes every 15s, HTTP 200.
 - [ ] Central Grafana `Heartbeat rate` panel shows a new line for
   `deployment_id=mvp-002`.
-- [ ] `clawtello status` prints unit + endpoint + last flush timestamps.
-- [ ] `clawtello uninstall` cleanly removes the unit; re-running is a no-op.
+- [ ] `telemetron status` prints unit + endpoint + last flush timestamps.
+- [ ] `telemetron uninstall` cleanly removes the unit; re-running is a no-op.
 - [ ] CI is green on first PR.
 
 ## Non-goals
@@ -318,5 +318,5 @@ Resolve these in the README before merging v1:
    bounded enum of model families; contributors should document their
    mapping in `docs/configuration.md`.)
 2. Do we want TLS pinning on the exporter? (MVP: no, just cert validation.)
-3. Where should `clawtello status` store its cache? (Proposed:
-   `/var/lib/clawtello/status.json`.)
+3. Where should `telemetron status` store its cache? (Proposed:
+   `/var/lib/telemetron/status.json`.)

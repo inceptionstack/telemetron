@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/inceptionstack/clawtello/internal/collectorapi"
-	"github.com/inceptionstack/clawtello/internal/config"
-	"github.com/inceptionstack/clawtello/internal/service"
-	"github.com/inceptionstack/clawtello/internal/status"
-	"github.com/inceptionstack/clawtello/internal/telemetry"
+	"github.com/inceptionstack/telemetron/internal/collectorapi"
+	"github.com/inceptionstack/telemetron/internal/config"
+	"github.com/inceptionstack/telemetron/internal/service"
+	"github.com/inceptionstack/telemetron/internal/status"
+	"github.com/inceptionstack/telemetron/internal/telemetry"
 	"github.com/spf13/cobra"
 )
 
@@ -56,7 +56,7 @@ func newStatusCmd() *cobra.Command {
 			}
 
 			if !svcStatus.Active {
-				return fmt.Errorf("clawtello is not active")
+				return fmt.Errorf("telemetron is not active")
 			}
 			return nil
 		},

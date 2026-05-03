@@ -1,12 +1,12 @@
 # Configuration Reference
 
-This document covers config keys, environment variables, CLI flags, and precedence rules for `clawtello`.
+This document covers config keys, environment variables, CLI flags, and precedence rules for `telemetron`.
 
 ## Precedence
 
 Configuration is assembled in layers:
 
-1. `CLAWTELLO_CONFIG`, if set, decides which config file path is loaded.
+1. `TELEMETRON_CONFIG`, if set, decides which config file path is loaded.
 2. Otherwise `--config` is used when provided.
 3. Otherwise the platform default config path is used.
 4. Values from the config file are loaded.
@@ -15,25 +15,25 @@ Configuration is assembled in layers:
 
 Special cases:
 
-- `CLAWTELLO_TOKEN` overrides `token_file` at runtime when `clawtello start` reads credentials.
-- `clawtello install` resolves the token in this order: `--token`, `CLAWTELLO_TOKEN`, existing token file.
-- `clawtello install` resolves `--endpoint` and `--mode` before the config load, so those flags win over the corresponding environment variables.
+- `TELEMETRON_TOKEN` overrides `token_file` at runtime when `telemetron start` reads credentials.
+- `telemetron install` resolves the token in this order: `--token`, `TELEMETRON_TOKEN`, existing token file.
+- `telemetron install` resolves `--endpoint` and `--mode` before the config load, so those flags win over the corresponding environment variables.
 
 ## Platform defaults
 
 ### Linux
 
-- config: `/etc/clawtello/config.yaml`
-- token: `/etc/clawtello/token`
-- state dir: `/var/lib/clawtello`
-- status file: `/var/lib/clawtello/status.json`
+- config: `/etc/telemetron/config.yaml`
+- token: `/etc/telemetron/token`
+- state dir: `/var/lib/telemetron`
+- status file: `/var/lib/telemetron/status.json`
 
 ### macOS
 
-- config: `~/.config/clawtello/config.yaml`
-- token: `~/.config/clawtello/token`
-- state dir: `~/.local/share/clawtello`
-- status file: `~/.local/share/clawtello/status.json`
+- config: `~/.config/telemetron/config.yaml`
+- token: `~/.config/telemetron/token`
+- state dir: `~/.local/share/telemetron`
+- status file: `~/.local/share/telemetron/status.json`
 
 ## Top-level config keys
 
@@ -54,7 +54,7 @@ Special cases:
 ### `token_file`
 
 - Type: string
-- Required: yes unless `CLAWTELLO_TOKEN` is set
+- Required: yes unless `TELEMETRON_TOKEN` is set
 - Purpose: file containing the bearer token
 - Recommended permissions: `0400`
 
@@ -127,34 +127,34 @@ Optional operator-supplied metadata attached as OTLP resource attributes for loc
 - Type: string
 - Required: yes
 - Default:
-  - Linux: `/var/lib/clawtello/openclaw.state.json`
-  - macOS: `~/.local/share/clawtello/openclaw.state.json`
+  - Linux: `/var/lib/telemetron/openclaw.state.json`
+  - macOS: `~/.local/share/telemetron/openclaw.state.json`
 - Purpose: durable offset store for session tailing
 
 ## Environment variables
 
-### `CLAWTELLO_CONFIG`
+### `TELEMETRON_CONFIG`
 
 - Overrides the config file path selection
 
-### `CLAWTELLO_ENDPOINT`
+### `TELEMETRON_ENDPOINT`
 
 - Overrides `endpoint`
 
-### `CLAWTELLO_TOKEN`
+### `TELEMETRON_TOKEN`
 
 - Inline bearer token
 - Used at runtime instead of `token_file` when set
 
-### `CLAWTELLO_TOKEN_FILE`
+### `TELEMETRON_TOKEN_FILE`
 
 - Overrides `token_file`
 
-### `CLAWTELLO_MODE`
+### `TELEMETRON_MODE`
 
 - Overrides `mode`
 
-### `CLAWTELLO_LOG_LEVEL`
+### `TELEMETRON_LOG_LEVEL`
 
 - Overrides `log_level`
 
@@ -165,14 +165,14 @@ Optional operator-supplied metadata attached as OTLP resource attributes for loc
 ### `--config`
 
 - Applies to: all commands
-- Purpose: choose config file path when `CLAWTELLO_CONFIG` is not set
+- Purpose: choose config file path when `TELEMETRON_CONFIG` is not set
 
 ### `--log-level`
 
 - Applies to: `start`, `status`, `install`
 - Purpose: override `log_level`
 
-## `clawtello install`
+## `telemetron install`
 
 Installs and starts the Linux systemd service. Unsupported on macOS and other non-Linux platforms.
 
@@ -186,19 +186,19 @@ Flags:
 - `--session-dir`: sets `<mode>.session_dir`
 - `--insecure-endpoint`: allows `http://` endpoints for local testing
 
-## `clawtello start`
+## `telemetron start`
 
 Runs the collector in the foreground using the resolved config and token.
 
-## `clawtello status`
+## `telemetron status`
 
 Prints service status and the last local status-file snapshot without making network calls.
 
-## `clawtello uninstall`
+## `telemetron uninstall`
 
 Removes the installed Linux service unit but leaves config and state on disk.
 
-## `clawtello version`
+## `telemetron version`
 
 Prints build metadata: version, commit, date, OS, and architecture.
 
@@ -207,7 +207,7 @@ Prints build metadata: version, commit, date, OS, and architecture.
 ```yaml
 mode: openclaw
 endpoint: https://your-otlp-gateway.example.com/v1/metrics
-token_file: /etc/clawtello/token
+token_file: /etc/telemetron/token
 log_level: info
 insecure_endpoint: false
 
@@ -215,11 +215,11 @@ declared:
   deployment_id: dev-laptop
   tier: development
   environment: local
-  pack_version: clawtello-0.2.0
+  pack_version: telemetron-0.2.0
 
 openclaw:
   session_dir: /home/you/.openclaw/agents/main/sessions
   flush_interval: 15s
   scan_interval: 15s
-  state_file: /var/lib/clawtello/openclaw.state.json
+  state_file: /var/lib/telemetron/openclaw.state.json
 ```

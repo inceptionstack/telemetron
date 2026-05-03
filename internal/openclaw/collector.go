@@ -15,11 +15,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/inceptionstack/clawtello/internal/collectorapi"
-	"github.com/inceptionstack/clawtello/internal/config"
-	"github.com/inceptionstack/clawtello/internal/contract"
-	"github.com/inceptionstack/clawtello/internal/jsonx"
-	"github.com/inceptionstack/clawtello/internal/status"
+	"github.com/inceptionstack/telemetron/internal/collectorapi"
+	"github.com/inceptionstack/telemetron/internal/config"
+	"github.com/inceptionstack/telemetron/internal/contract"
+	"github.com/inceptionstack/telemetron/internal/jsonx"
+	"github.com/inceptionstack/telemetron/internal/status"
 	"github.com/mitchellh/mapstructure"
 )
 

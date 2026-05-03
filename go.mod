@@ -1,4 +1,4 @@
-module github.com/inceptionstack/clawtello
+module github.com/inceptionstack/telemetron
 
 go 1.22.0
 

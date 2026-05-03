@@ -5,7 +5,7 @@ package service
 import (
 	"errors"
 
-	"github.com/inceptionstack/clawtello/internal/config"
+	"github.com/inceptionstack/telemetron/internal/config"
 )
 
 var ErrUnsupported = errors.New("platform does not support daemon install")

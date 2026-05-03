@@ -15,13 +15,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/inceptionstack/clawtello/internal/config"
+	"github.com/inceptionstack/telemetron/internal/config"
 )
 
 const (
-	binaryPath = "/usr/local/bin/clawtello"
-	unitPath   = "/etc/systemd/system/clawtello.service"
-	configDir  = "/etc/clawtello"
+	binaryPath = "/usr/local/bin/telemetron"
+	unitPath   = "/etc/systemd/system/telemetron.service"
+	configDir  = "/etc/telemetron"
 )
 
 type filesystem interface {
@@ -80,7 +80,7 @@ func (s *linuxService) Install(cfg config.Config, token string) error {
 	if err := s.ensureUser(); err != nil {
 		return err
 	}
-	account, err := s.lookupUser("clawtello")
+	account, err := s.lookupUser("telemetron")
 	if err != nil {
 		return err
 	}
@@ -135,14 +135,14 @@ func (s *linuxService) EnableAndStart() error {
 	if err := s.run("systemctl", "daemon-reload"); err != nil {
 		return err
 	}
-	return s.run("systemctl", "enable", "--now", "clawtello.service")
+	return s.run("systemctl", "enable", "--now", "telemetron.service")
 }
 
 func (s *linuxService) Uninstall() error {
 	if s.uid() != 0 {
 		return fmt.Errorf("this command must run as root")
 	}
-	_ = s.run("systemctl", "disable", "--now", "clawtello.service")
+	_ = s.run("systemctl", "disable", "--now", "telemetron.service")
 	if err := s.fs.Remove(unitPath); err != nil && !errorsIsNotExist(err) {
 		return err
 	}
@@ -150,7 +150,7 @@ func (s *linuxService) Uninstall() error {
 }
 
 func (s *linuxService) ProbeStatus() (Status, error) {
-	out, err := s.runOutput("systemctl", "show", "clawtello.service", "--property=LoadState,ActiveState,SubState,ActiveEnterTimestamp", "--value")
+	out, err := s.runOutput("systemctl", "show", "telemetron.service", "--property=LoadState,ActiveState,SubState,ActiveEnterTimestamp", "--value")
 	if err != nil {
 		return Status{Detail: "unknown"}, nil
 	}
@@ -172,15 +172,15 @@ func (s *linuxService) ProbeStatus() (Status, error) {
 
 func renderUnit(configPath string) string {
 	return fmt.Sprintf(`[Unit]
-Description=clawtello OTLP metrics sidecar
+Description=telemetron OTLP metrics sidecar
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=clawtello
-Group=clawtello
-ExecStart=/usr/local/bin/clawtello start --config %s
+User=telemetron
+Group=telemetron
+ExecStart=/usr/local/bin/telemetron start --config %s
 Restart=on-failure
 RestartSec=10
 LimitCORE=0
@@ -188,7 +188,7 @@ ProtectSystem=strict
 ProtectHome=read-only
 PrivateTmp=true
 NoNewPrivileges=true
-ReadWritePaths=/var/lib/clawtello
+ReadWritePaths=/var/lib/telemetron
 StandardOutput=journal
 StandardError=journal
 
@@ -213,19 +213,19 @@ func (s *linuxService) copySelf() error {
 }
 
 func (s *linuxService) ensureUser() error {
-	if _, err := s.runOutput("getent", "passwd", "clawtello"); err == nil {
+	if _, err := s.runOutput("getent", "passwd", "telemetron"); err == nil {
 		return nil
 	}
 	if _, err := exec.LookPath("useradd"); err != nil {
-		return fmt.Errorf("useradd is required to create the clawtello system user")
+		return fmt.Errorf("useradd is required to create the telemetron system user")
 	}
 	shells := []string{"/usr/sbin/nologin", "/sbin/nologin", "/bin/false"}
 	for _, shell := range shells {
-		if err := s.run("useradd", "--system", "--home-dir", "/var/lib/clawtello", "--shell", shell, "clawtello"); err == nil {
+		if err := s.run("useradd", "--system", "--home-dir", "/var/lib/telemetron", "--shell", shell, "telemetron"); err == nil {
 			return nil
 		}
 	}
-	return fmt.Errorf("failed to create clawtello system user with useradd")
+	return fmt.Errorf("failed to create telemetron system user with useradd")
 }
 
 func (s *linuxService) chownRecursive(root string, uid, gid int) error {

@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
-// Package telemetry implements the user-facing opt-out contract for clawtello.
+// Package telemetry implements the user-facing opt-out contract for telemetron.
 //
-// clawtello respects its own signals AND the lowkey installer family
-// signals, so a single opt-out disables both when clawtello is deployed
+// telemetron respects its own signals AND the lowkey installer family
+// signals, so a single opt-out disables both when telemetron is deployed
 // alongside lowkey:
 //
 //  Shared:
 //    DO_NOT_TRACK=1                    (https://consoledonottrack.com)
 //
-//  clawtello-specific:
-//    CLAWTELLO_TELEMETRY=0
-//    $HOME/.clawtello/telemetry-off
+//  telemetron-specific:
+//    TELEMETRON_TELEMETRY=0
+//    $HOME/.telemetron/telemetry-off
 //
 //  Lowkey-family (inherited when deployed via lowkey):
 //    LOWKEY_TELEMETRY=0
@@ -21,10 +21,10 @@
 // no token read, no network sockets.
 //
 // For systemd deployments, the marker files are checked against the
-// *service* user's home (the user that clawtello runs as), since env
+// *service* user's home (the user that telemetron runs as), since env
 // vars set by the lowkey installer in the interactive shell do not
 // propagate into systemd units by default. The lowkey installer is
-// expected to drop the marker file under the clawtello user's home if
+// expected to drop the marker file under the telemetron user's home if
 // the operator opted out at install time.
 package telemetry
 
@@ -44,14 +44,14 @@ var optOutEnvVars = []struct {
 	trigger string
 }{
 	{"DO_NOT_TRACK", "truthy"},
-	{"CLAWTELLO_TELEMETRY", "false0"},
+	{"TELEMETRON_TELEMETRY", "false0"},
 	{"LOWKEY_TELEMETRY", "false0"},
 }
 
 // markerFilesRel lists relative paths (under $HOME) of opt-out markers
-// honored by clawtello. Checked in order; first hit wins.
+// honored by telemetron. Checked in order; first hit wins.
 var markerFilesRel = []string{
-	".clawtello/telemetry-off",
+	".telemetron/telemetry-off",
 	".lowkey/telemetry-off",
 }
 

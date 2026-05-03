@@ -1,17 +1,17 @@
 # macOS
 
-`clawtello install` and `clawtello uninstall` are not supported on macOS in v0.2.
+`telemetron install` and `telemetron uninstall` are not supported on macOS in v0.2.
 
 Use:
 
 ```bash
-clawtello start --config ~/.config/clawtello/config.yaml
-clawtello status
+telemetron start --config ~/.config/telemetron/config.yaml
+telemetron status
 ```
 
 Default macOS paths:
 
-- config: `~/.config/clawtello/config.yaml`
-- token: `~/.config/clawtello/token`
-- state: `~/.local/share/clawtello/`
-- status: `~/.local/share/clawtello/status.json`
+- config: `~/.config/telemetron/config.yaml`
+- token: `~/.config/telemetron/token`
+- state: `~/.local/share/telemetron/`
+- status: `~/.local/share/telemetron/status.json`

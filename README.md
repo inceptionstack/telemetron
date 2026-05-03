@@ -1,26 +1,26 @@
-# clawtello
+# telemetron
 
 Privacy-safe telemetry sidecar for Loki/OpenClaw-style agent sessions, exporting bounded OTLP metrics without shipping transcript content.
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/inceptionstack/clawtello.svg)](https://pkg.go.dev/github.com/inceptionstack/clawtello)
-[![CI](https://img.shields.io/github/actions/workflow/status/inceptionstack/clawtello/ci.yml?branch=main&label=ci)](https://github.com/inceptionstack/clawtello/actions/workflows/ci.yml)
-[![License](https://img.shields.io/github/license/inceptionstack/clawtello)](LICENSE)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/inceptionstack/clawtello)](go.mod)
+[![Go Reference](https://pkg.go.dev/badge/github.com/inceptionstack/telemetron.svg)](https://pkg.go.dev/github.com/inceptionstack/telemetron)
+[![CI](https://img.shields.io/github/actions/workflow/status/inceptionstack/telemetron/ci.yml?branch=main&label=ci)](https://github.com/inceptionstack/telemetron/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/inceptionstack/telemetron)](LICENSE)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/inceptionstack/telemetron)](go.mod)
 
 ## What it is
 
-`clawtello` is a small Go binary that tails local session JSONL files, derives a bounded set of counters, and exports them to any OTLP/HTTP metrics endpoint. It is built for operators who want host-local telemetry collection without shipping prompts, responses, tool payloads, or other per-message content off the machine.
+`telemetron` is a small Go binary that tails local session JSONL files, derives a bounded set of counters, and exports them to any OTLP/HTTP metrics endpoint. It is built for operators who want host-local telemetry collection without shipping prompts, responses, tool payloads, or other per-message content off the machine.
 
 ## Why
 
-Modern coding agents leave rich local state behind, but shipping that state raw creates privacy, compliance, and operational risk. `clawtello` solves that by acting as a privacy-safe telemetry sidecar that derives bounded counters and sends them to any OTLP/HTTP endpoint with bearer auth, without leaking per-message content or prompt data.
+Modern coding agents leave rich local state behind, but shipping that state raw creates privacy, compliance, and operational risk. `telemetron` solves that by acting as a privacy-safe telemetry sidecar that derives bounded counters and sends them to any OTLP/HTTP endpoint with bearer auth, without leaking per-message content or prompt data.
 
 ## Install
 
 1. Go install:
 
    ```bash
-   go install github.com/inceptionstack/clawtello/cmd/clawtello@latest
+   go install github.com/inceptionstack/telemetron/cmd/telemetron@latest
    ```
 
 2. Prebuilt binaries:
@@ -35,38 +35,38 @@ Modern coding agents leave rich local state behind, but shipping that state raw 
 3. From source:
 
    ```bash
-   git clone https://github.com/inceptionstack/clawtello.git
-   cd clawtello
+   git clone https://github.com/inceptionstack/telemetron.git
+   cd telemetron
    make build
    ```
 
 ## Quickstart
 
-This example installs `clawtello` against a generic OTLP/HTTP endpoint. Replace the token value and session directory for your host.
+This example installs `telemetron` against a generic OTLP/HTTP endpoint. Replace the token value and session directory for your host.
 
 ```bash
-git clone https://github.com/inceptionstack/clawtello.git
-cd clawtello
+git clone https://github.com/inceptionstack/telemetron.git
+cd telemetron
 make build
 
-sudo install -d -m 0755 /etc/clawtello
-printf '%s\n' 'replace-with-your-bearer-token' | sudo tee /etc/clawtello/token >/dev/null
-sudo chmod 0400 /etc/clawtello/token
+sudo install -d -m 0755 /etc/telemetron
+printf '%s\n' 'replace-with-your-bearer-token' | sudo tee /etc/telemetron/token >/dev/null
+sudo chmod 0400 /etc/telemetron/token
 
-# The install command reads the token from /etc/clawtello/token by default.
+# The install command reads the token from /etc/telemetron/token by default.
 # Avoid passing --token on the CLI in production; it leaks into shell
 # history and the kernel process list.
-sudo ./clawtello install \
+sudo ./telemetron install \
   --endpoint https://your-otlp-gateway.example.com/v1/metrics \
   --mode openclaw \
   --session-dir "$HOME/.openclaw/agents/main/sessions" \
   --deployment-id dev-laptop \
   --tier development
 
-./clawtello status
+./telemetron status
 ```
 
-For macOS, run `clawtello start --config ~/.config/clawtello/config.yaml` directly or under `launchd`. See [docs/macos.md](docs/macos.md).
+For macOS, run `telemetron start --config ~/.config/telemetron/config.yaml` directly or under `launchd`. See [docs/macos.md](docs/macos.md).
 
 ## Configuration
 
@@ -80,7 +80,7 @@ mode: openclaw
 endpoint: https://your-otlp-gateway.example.com/v1/metrics
 
 # Path to a bearer token file. Keep this file mode 0400.
-token_file: /etc/clawtello/token
+token_file: /etc/telemetron/token
 
 # Structured log verbosity for foreground runs and service logs.
 log_level: info
@@ -96,7 +96,7 @@ declared:
   # Optional environment hint.
   environment: local
   # Optional operator-supplied pack or bundle version.
-  pack_version: clawtello-0.2.0
+  pack_version: telemetron-0.2.0
 
 openclaw:
   # Directory containing session JSONL files to tail.
@@ -106,12 +106,12 @@ openclaw:
   # Interval between scans for appended session data.
   scan_interval: 15s
   # Durable state file storing per-session offsets.
-  state_file: /var/lib/clawtello/openclaw.state.json
+  state_file: /var/lib/telemetron/openclaw.state.json
 ```
 
 ## How it works
 
-`clawtello` watches local session files, resumes from durable offsets, derives an allowlisted set of counters, and exports those counters to your OTLP/HTTP gateway with bearer authentication. The collector never sends transcript bodies, prompt content, tool arguments, or other raw session payloads. It ships only bounded metric names and normalized attribute values.
+`telemetron` watches local session files, resumes from durable offsets, derives an allowlisted set of counters, and exports those counters to your OTLP/HTTP gateway with bearer authentication. The collector never sends transcript bodies, prompt content, tool arguments, or other raw session payloads. It ships only bounded metric names and normalized attribute values.
 
 ```text
 sessions/*.jsonl
@@ -137,32 +137,32 @@ The collector interface is intentionally additive. If you need support for anoth
 
 | Platform | Install | Start | Status |
 | --- | --- | --- | --- |
-| Linux systemd | `clawtello install` supported | `clawtello start` supported | `clawtello status` supported |
+| Linux systemd | `telemetron install` supported | `telemetron start` supported | `telemetron status` supported |
 | macOS | daemon install unsupported | foreground `start` supported | `status` supported |
 | Other | daemon install unsupported | best-effort foreground `start` | limited `status` detail |
 
 ## Security
 
-`clawtello` is designed so message content never leaves the box. The collector emits only allowlisted metric names with a bounded attribute set, reads its bearer token from a `0400` file, and requires HTTPS by default. Plaintext endpoints are rejected unless `insecure_endpoint` is explicitly enabled for local testing.
+`telemetron` is designed so message content never leaves the box. The collector emits only allowlisted metric names with a bounded attribute set, reads its bearer token from a `0400` file, and requires HTTPS by default. Plaintext endpoints are rejected unless `insecure_endpoint` is explicitly enabled for local testing.
 
 ## Disabling telemetry
 
-`clawtello` honors its own opt-out signals **and** the [`lowkey`](https://github.com/inceptionstack/lowkey) installer-family signals, so a single opt-out disables both tools when they are deployed together:
+`telemetron` honors its own opt-out signals **and** the [`lowkey`](https://github.com/inceptionstack/lowkey) installer-family signals, so a single opt-out disables both tools when they are deployed together:
 
 **Shared**
 - `DO_NOT_TRACK=1` — [consoledonottrack.com](https://consoledonottrack.com) community standard. Truthy: `1|true|yes|on` (case-insensitive).
 
-**clawtello-specific**
-- `CLAWTELLO_TELEMETRY=0` — falsy values `0|false|no|off` opt out; unset or any other value keeps telemetry enabled.
-- `~/.clawtello/telemetry-off` — marker file under the service user’s home.
+**telemetron-specific**
+- `TELEMETRON_TELEMETRY=0` — falsy values `0|false|no|off` opt out; unset or any other value keeps telemetry enabled.
+- `~/.telemetron/telemetry-off` — marker file under the service user’s home.
 
 **Lowkey-family (inherited when deployed via `lowkey`)**
 - `LOWKEY_TELEMETRY=0`
 - `~/.lowkey/telemetry-off`
 
-When any signal is present, `clawtello start` exits cleanly without loading config, reading the token, or opening any sockets. `clawtello status` reports `telemetry: disabled (<source>)` instead of probing the service.
+When any signal is present, `telemetron start` exits cleanly without loading config, reading the token, or opening any sockets. `telemetron status` reports `telemetry: disabled (<source>)` instead of probing the service.
 
-Note: environment variables set in the interactive shell that ran the `lowkey` installer do **not** propagate into the `clawtello` systemd unit. For `lowkey`-installed deployments, `lowkey` should drop the marker file into the `clawtello` service user’s home so the opt-out sticks across restarts.
+Note: environment variables set in the interactive shell that ran the `lowkey` installer do **not** propagate into the `telemetron` systemd unit. For `lowkey`-installed deployments, `lowkey` should drop the marker file into the `telemetron` service user’s home so the opt-out sticks across restarts.
 
 ## Status
 

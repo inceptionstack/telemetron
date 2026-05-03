@@ -16,7 +16,7 @@ func TestIsDisabled(t *testing.T) {
 	}
 
 	fakeHome := "/fake/home"
-	clawMarker := filepath.Join(fakeHome, ".clawtello/telemetry-off")
+	clawMarker := filepath.Join(fakeHome, ".telemetron/telemetry-off")
 	lowkeyMarker := filepath.Join(fakeHome, ".lowkey/telemetry-off")
 
 	cases := []struct {
@@ -39,12 +39,12 @@ func TestIsDisabled(t *testing.T) {
 		{"do_not_track=empty", map[string]string{"DO_NOT_TRACK": ""}, nil, false, result{false, ""}},
 		{"do_not_track=whitespace", map[string]string{"DO_NOT_TRACK": "   "}, nil, false, result{false, ""}},
 
-		// CLAWTELLO_TELEMETRY — falsy wins.
-		{"clawtello_telemetry=0", map[string]string{"CLAWTELLO_TELEMETRY": "0"}, nil, false, result{true, "env:CLAWTELLO_TELEMETRY"}},
-		{"clawtello_telemetry=false", map[string]string{"CLAWTELLO_TELEMETRY": "false"}, nil, false, result{true, "env:CLAWTELLO_TELEMETRY"}},
-		{"clawtello_telemetry=OFF", map[string]string{"CLAWTELLO_TELEMETRY": "OFF"}, nil, false, result{true, "env:CLAWTELLO_TELEMETRY"}},
-		{"clawtello_telemetry=1_noop", map[string]string{"CLAWTELLO_TELEMETRY": "1"}, nil, false, result{false, ""}},
-		{"clawtello_telemetry=empty_noop", map[string]string{"CLAWTELLO_TELEMETRY": ""}, nil, false, result{false, ""}},
+		// TELEMETRON_TELEMETRY — falsy wins.
+		{"telemetron_telemetry=0", map[string]string{"TELEMETRON_TELEMETRY": "0"}, nil, false, result{true, "env:TELEMETRON_TELEMETRY"}},
+		{"telemetron_telemetry=false", map[string]string{"TELEMETRON_TELEMETRY": "false"}, nil, false, result{true, "env:TELEMETRON_TELEMETRY"}},
+		{"telemetron_telemetry=OFF", map[string]string{"TELEMETRON_TELEMETRY": "OFF"}, nil, false, result{true, "env:TELEMETRON_TELEMETRY"}},
+		{"telemetron_telemetry=1_noop", map[string]string{"TELEMETRON_TELEMETRY": "1"}, nil, false, result{false, ""}},
+		{"telemetron_telemetry=empty_noop", map[string]string{"TELEMETRON_TELEMETRY": ""}, nil, false, result{false, ""}},
 
 		// LOWKEY_TELEMETRY — inherited from lowkey installer.
 		{"lowkey_telemetry=0", map[string]string{"LOWKEY_TELEMETRY": "0"}, nil, false, result{true, "env:LOWKEY_TELEMETRY"}},
@@ -53,17 +53,17 @@ func TestIsDisabled(t *testing.T) {
 		{"lowkey_telemetry=1_noop", map[string]string{"LOWKEY_TELEMETRY": "1"}, nil, false, result{false, ""}},
 		{"lowkey_telemetry=empty_noop", map[string]string{"LOWKEY_TELEMETRY": ""}, nil, false, result{false, ""}},
 
-		// CLAWTELLO_DISABLE is not honored anymore.
-		{"clawtello_disable_ignored", map[string]string{"CLAWTELLO_DISABLE": "1"}, nil, false, result{false, ""}},
+		// TELEMETRON_DISABLE is not honored anymore.
+		{"telemetron_disable_ignored", map[string]string{"TELEMETRON_DISABLE": "1"}, nil, false, result{false, ""}},
 
 		// Precedence among env vars.
-		{"dnt_wins_over_clawtello", map[string]string{"DO_NOT_TRACK": "1", "CLAWTELLO_TELEMETRY": "0"}, nil, false, result{true, "env:DO_NOT_TRACK"}},
-		{"clawtello_wins_over_lowkey", map[string]string{"CLAWTELLO_TELEMETRY": "0", "LOWKEY_TELEMETRY": "0"}, nil, false, result{true, "env:CLAWTELLO_TELEMETRY"}},
+		{"dnt_wins_over_telemetron", map[string]string{"DO_NOT_TRACK": "1", "TELEMETRON_TELEMETRY": "0"}, nil, false, result{true, "env:DO_NOT_TRACK"}},
+		{"telemetron_wins_over_lowkey", map[string]string{"TELEMETRON_TELEMETRY": "0", "LOWKEY_TELEMETRY": "0"}, nil, false, result{true, "env:TELEMETRON_TELEMETRY"}},
 
 		// Marker files.
-		{"clawtello_marker_present", nil, map[string]bool{clawMarker: true}, false, result{true, "file:" + clawMarker}},
+		{"telemetron_marker_present", nil, map[string]bool{clawMarker: true}, false, result{true, "file:" + clawMarker}},
 		{"lowkey_marker_present", nil, map[string]bool{lowkeyMarker: true}, false, result{true, "file:" + lowkeyMarker}},
-		{"clawtello_marker_wins_over_lowkey", nil, map[string]bool{clawMarker: true, lowkeyMarker: true}, false, result{true, "file:" + clawMarker}},
+		{"telemetron_marker_wins_over_lowkey", nil, map[string]bool{clawMarker: true, lowkeyMarker: true}, false, result{true, "file:" + clawMarker}},
 		{"no_marker", nil, map[string]bool{clawMarker: false, lowkeyMarker: false}, false, result{false, ""}},
 		{"marker_ignored_when_home_errs", nil, map[string]bool{clawMarker: true}, true, result{false, ""}},
 

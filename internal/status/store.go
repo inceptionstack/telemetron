@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/inceptionstack/clawtello/internal/fsatomic"
+	"github.com/inceptionstack/telemetron/internal/fsatomic"
 )
 
 type Snapshot struct {

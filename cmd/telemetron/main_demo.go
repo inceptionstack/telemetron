@@ -4,4 +4,4 @@
 
 package main
 
-import _ "github.com/inceptionstack/clawtello/internal/demo"
+import _ "github.com/inceptionstack/telemetron/internal/demo"

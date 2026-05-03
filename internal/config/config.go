@@ -58,7 +58,7 @@ func Load(opts LoadOptions) (Config, error) {
 	paths := DefaultPaths(platform)
 
 	cfgPath := opts.ConfigPath
-	if envPath := os.Getenv("CLAWTELLO_CONFIG"); envPath != "" {
+	if envPath := os.Getenv("TELEMETRON_CONFIG"); envPath != "" {
 		cfgPath = envPath
 	}
 	if cfgPath == "" {
@@ -115,10 +115,10 @@ func Load(opts LoadOptions) (Config, error) {
 
 func applyEnv(v *viper.Viper) {
 	envMap := map[string]any{
-		"endpoint":   os.Getenv("CLAWTELLO_ENDPOINT"),
-		"token_file": os.Getenv("CLAWTELLO_TOKEN_FILE"),
-		"mode":       os.Getenv("CLAWTELLO_MODE"),
-		"log_level":  os.Getenv("CLAWTELLO_LOG_LEVEL"),
+		"endpoint":   os.Getenv("TELEMETRON_ENDPOINT"),
+		"token_file": os.Getenv("TELEMETRON_TOKEN_FILE"),
+		"mode":       os.Getenv("TELEMETRON_MODE"),
+		"log_level":  os.Getenv("TELEMETRON_LOG_LEVEL"),
 	}
 	for key, value := range envMap {
 		if value != "" {
@@ -140,14 +140,14 @@ func (c Config) ValidateBootstrap() error {
 	if !modeRegistered(c.Mode) {
 		return fmt.Errorf("unsupported mode %q", c.Mode)
 	}
-	if c.TokenFile == "" && os.Getenv("CLAWTELLO_TOKEN") == "" {
-		return errors.New("token_file or CLAWTELLO_TOKEN is required")
+	if c.TokenFile == "" && os.Getenv("TELEMETRON_TOKEN") == "" {
+		return errors.New("token_file or TELEMETRON_TOKEN is required")
 	}
 	return nil
 }
 
 func (c Config) Token() (string, error) {
-	if token := os.Getenv("CLAWTELLO_TOKEN"); token != "" {
+	if token := os.Getenv("TELEMETRON_TOKEN"); token != "" {
 		return strings.TrimSpace(token), nil
 	}
 	data, err := os.ReadFile(c.TokenFile)
@@ -165,8 +165,8 @@ func DefaultPaths(platform string) Paths {
 	switch platform {
 	case "darwin":
 		home := userHomeDir()
-		configDir := home + "/.config/clawtello"
-		stateDir := home + "/.local/share/clawtello"
+		configDir := home + "/.config/telemetron"
+		stateDir := home + "/.local/share/telemetron"
 		return Paths{
 			ConfigPath: configDir + "/config.yaml",
 			TokenFile:  configDir + "/token",
@@ -175,10 +175,10 @@ func DefaultPaths(platform string) Paths {
 		}
 	default:
 		return Paths{
-			ConfigPath: "/etc/clawtello/config.yaml",
-			TokenFile:  "/etc/clawtello/token",
-			StateDir:   "/var/lib/clawtello",
-			StatusFile: "/var/lib/clawtello/status.json",
+			ConfigPath: "/etc/telemetron/config.yaml",
+			TokenFile:  "/etc/telemetron/token",
+			StateDir:   "/var/lib/telemetron",
+			StatusFile: "/var/lib/telemetron/status.json",
 		}
 	}
 }

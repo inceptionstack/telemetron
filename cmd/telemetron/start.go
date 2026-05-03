@@ -9,11 +9,11 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/inceptionstack/clawtello/internal/collectorapi"
-	"github.com/inceptionstack/clawtello/internal/config"
-	"github.com/inceptionstack/clawtello/internal/otlp"
-	"github.com/inceptionstack/clawtello/internal/status"
-	"github.com/inceptionstack/clawtello/internal/telemetry"
+	"github.com/inceptionstack/telemetron/internal/collectorapi"
+	"github.com/inceptionstack/telemetron/internal/config"
+	"github.com/inceptionstack/telemetron/internal/otlp"
+	"github.com/inceptionstack/telemetron/internal/status"
+	"github.com/inceptionstack/telemetron/internal/telemetry"
 	"github.com/spf13/cobra"
 )
 

@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inceptionstack/clawtello/internal/collectorapi"
-	"github.com/inceptionstack/clawtello/internal/otlp"
-	"github.com/inceptionstack/clawtello/internal/status"
+	"github.com/inceptionstack/telemetron/internal/collectorapi"
+	"github.com/inceptionstack/telemetron/internal/otlp"
+	"github.com/inceptionstack/telemetron/internal/status"
 	"github.com/stretchr/testify/require"
 )
 

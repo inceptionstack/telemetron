@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/inceptionstack/clawtello/internal/config"
+	"github.com/inceptionstack/telemetron/internal/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -71,22 +71,22 @@ func (f *fakeFS) WalkDir(root string, fn filepath.WalkFunc) error {
 }
 
 func TestRenderUnitIncludesRequiredLines(t *testing.T) {
-	unit := renderUnit("/etc/clawtello/config.yaml")
-	require.Contains(t, unit, "User=clawtello")
-	require.Contains(t, unit, "ExecStart=/usr/local/bin/clawtello start --config /etc/clawtello/config.yaml")
-	require.Contains(t, unit, "ReadWritePaths=/var/lib/clawtello")
+	unit := renderUnit("/etc/telemetron/config.yaml")
+	require.Contains(t, unit, "User=telemetron")
+	require.Contains(t, unit, "ExecStart=/usr/local/bin/telemetron start --config /etc/telemetron/config.yaml")
+	require.Contains(t, unit, "ReadWritePaths=/var/lib/telemetron")
 	require.Contains(t, unit, "ProtectSystem=strict")
 }
 
 func TestInstallChownsTokenAndStateDir(t *testing.T) {
 	fs := &fakeFS{
 		data: map[string][]byte{
-			"/tmp/clawtello": []byte("bin"),
+			"/tmp/telemetron": []byte("bin"),
 		},
 		walks: map[string][]string{
-			"/var/lib/clawtello": {
-				"/var/lib/clawtello",
-				"/var/lib/clawtello/existing.json",
+			"/var/lib/telemetron": {
+				"/var/lib/telemetron",
+				"/var/lib/telemetron/existing.json",
 			},
 		},
 	}
@@ -96,21 +96,21 @@ func TestInstallChownsTokenAndStateDir(t *testing.T) {
 			return nil
 		},
 		runOutput: func(name string, args ...string) ([]byte, error) {
-			return []byte("clawtello:x:1001:1001::/var/lib/clawtello:/usr/sbin/nologin"), nil
+			return []byte("telemetron:x:1001:1001::/var/lib/telemetron:/usr/sbin/nologin"), nil
 		},
 		lookupUser: func(username string) (*user.User, error) {
 			return &user.User{Uid: "1001", Gid: "1001"}, nil
 		},
-		executable: func() (string, error) { return "/tmp/clawtello", nil },
+		executable: func() (string, error) { return "/tmp/telemetron", nil },
 		uid:        func() int { return 0 },
 	}
 	cfg := config.Config{
 		Mode:      "testmode",
 		Endpoint:  "https://example.test/v1/metrics",
-		TokenFile: "/etc/clawtello/token",
-		FilePath:  "/etc/clawtello/config.yaml",
+		TokenFile: "/etc/telemetron/token",
+		FilePath:  "/etc/telemetron/config.yaml",
 		Paths: config.Paths{
-			StateDir: "/var/lib/clawtello",
+			StateDir: "/var/lib/telemetron",
 		},
 		Collectors: map[string]any{
 			"testmode": map[string]any{"session_dir": "/tmp/sessions"},
@@ -119,7 +119,7 @@ func TestInstallChownsTokenAndStateDir(t *testing.T) {
 
 	err := svc.Install(cfg, "secret")
 	require.NoError(t, err)
-	require.Contains(t, fs.chowns, "/etc/clawtello/token")
-	require.Contains(t, fs.chowns, "/var/lib/clawtello")
-	require.Contains(t, fs.chowns, "/var/lib/clawtello/existing.json")
+	require.Contains(t, fs.chowns, "/etc/telemetron/token")
+	require.Contains(t, fs.chowns, "/var/lib/telemetron")
+	require.Contains(t, fs.chowns, "/var/lib/telemetron/existing.json")
 }

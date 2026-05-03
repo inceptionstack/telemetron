@@ -10,7 +10,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/inceptionstack/clawtello/internal/status"
+	"github.com/inceptionstack/telemetron/internal/status"
 	"github.com/stretchr/testify/require"
 )
 

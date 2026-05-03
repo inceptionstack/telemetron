@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Questions and discussion
-    url: https://github.com/inceptionstack/clawtello/discussions
+    url: https://github.com/inceptionstack/telemetron/discussions
     about: Use Discussions for general questions if enabled for the repository.
   - name: Private vulnerability report
-    url: https://github.com/inceptionstack/clawtello/security/policy
+    url: https://github.com/inceptionstack/telemetron/security/policy
     about: See SECURITY.md for private vulnerability disclosure instructions.
