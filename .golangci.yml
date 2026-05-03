@@ -10,6 +10,17 @@ linters:
     - ineffassign
     - staticcheck
     - unused
+  settings:
+    errcheck:
+      # Ignore writes to stdout/stderr helpers and deferred Close(), where
+      # handling the error is rarely actionable and bloats call sites.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintln
+        - fmt.Fprintf
+        - (io.Closer).Close
+        - (*os.File).Close
+        - (*net/http.Response).Body.Close
 
 issues:
   max-issues-per-linter: 0
