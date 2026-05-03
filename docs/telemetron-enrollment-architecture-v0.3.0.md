@@ -7,7 +7,7 @@ Final design (plan v6, Codex-accepted). Commit: `d2c438c` on branch `v0.3.0-enro
 ## 1. Enrollment flow (happy path + retry + takeover attempt)
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'primaryColor':'#f5f5f5','primaryTextColor':'#000','primaryBorderColor':'#333','lineColor':'#333','secondaryColor':'#e8e8e8','tertiaryColor':'#fafafa','noteTextColor':'#000','noteBkgColor':'#fffde7','noteBorderColor':'#333','actorTextColor':'#000','actorBkg':'#e3f2fd','actorBorder':'#333','signalColor':'#000','signalTextColor':'#000','labelTextColor':'#000','loopTextColor':'#000'}}}%%
+%%{init: {'theme':'neutral','themeVariables':{'background':'#ffffff','primaryColor':'#f5f5f5','primaryTextColor':'#000000','primaryBorderColor':'#333333','lineColor':'#333333','secondaryColor':'#e8e8e8','tertiaryColor':'#fafafa','noteTextColor':'#000000','noteBkgColor':'#fff9c4','noteBorderColor':'#555555','actorTextColor':'#000000','actorBkg':'#e3f2fd','actorBorder':'#333333','actorLineColor':'#333333','signalColor':'#000000','signalTextColor':'#000000','labelTextColor':'#000000','labelBoxBkgColor':'#fff9c4','labelBoxBorderColor':'#555555','loopTextColor':'#000000','activationBorderColor':'#333333','activationBkgColor':'#eeeeee','sequenceNumberColor':'#ffffff'}}}%%
 sequenceDiagram
     autonumber
     participant L as Lowkey installer<br/>(install.sh)
@@ -61,7 +61,7 @@ sequenceDiagram
 ## 2. Metrics flush & authorization (steady state)
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'primaryColor':'#f5f5f5','primaryTextColor':'#000','primaryBorderColor':'#333','lineColor':'#333','secondaryColor':'#e8e8e8','tertiaryColor':'#fafafa','noteTextColor':'#000','noteBkgColor':'#fffde7','noteBorderColor':'#333','actorTextColor':'#000','actorBkg':'#e3f2fd','actorBorder':'#333','signalColor':'#000','signalTextColor':'#000','labelTextColor':'#000','loopTextColor':'#000'}}}%%
+%%{init: {'theme':'neutral','themeVariables':{'background':'#ffffff','primaryColor':'#f5f5f5','primaryTextColor':'#000000','primaryBorderColor':'#333333','lineColor':'#333333','secondaryColor':'#e8e8e8','tertiaryColor':'#fafafa','noteTextColor':'#000000','noteBkgColor':'#fff9c4','noteBorderColor':'#555555','actorTextColor':'#000000','actorBkg':'#e3f2fd','actorBorder':'#333333','actorLineColor':'#333333','signalColor':'#000000','signalTextColor':'#000000','labelTextColor':'#000000','labelBoxBkgColor':'#fff9c4','labelBoxBorderColor':'#555555','loopTextColor':'#000000','activationBorderColor':'#333333','activationBkgColor':'#eeeeee','sequenceNumberColor':'#ffffff'}}}%%
 sequenceDiagram
     autonumber
     participant TX as telemetron<br/>(OTLP exporter)
@@ -101,7 +101,7 @@ sequenceDiagram
 ## 3. DynamoDB key design & IAM boundaries
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'primaryColor':'#f5f5f5','primaryTextColor':'#000','primaryBorderColor':'#333','lineColor':'#333','secondaryColor':'#e8e8e8','tertiaryColor':'#fafafa','noteTextColor':'#000','noteBkgColor':'#fffde7','noteBorderColor':'#333','actorTextColor':'#000','actorBkg':'#e3f2fd','actorBorder':'#333','signalColor':'#000','signalTextColor':'#000','labelTextColor':'#000','loopTextColor':'#000'}}}%%
+%%{init: {'theme':'neutral','themeVariables':{'background':'#ffffff','primaryColor':'#f5f5f5','primaryTextColor':'#000000','primaryBorderColor':'#333333','lineColor':'#333333','secondaryColor':'#e8e8e8','tertiaryColor':'#fafafa','noteTextColor':'#000000','noteBkgColor':'#fff9c4','noteBorderColor':'#555555','actorTextColor':'#000000','actorBkg':'#e3f2fd','actorBorder':'#333333','actorLineColor':'#333333','signalColor':'#000000','signalTextColor':'#000000','labelTextColor':'#000000','labelBoxBkgColor':'#fff9c4','labelBoxBorderColor':'#555555','loopTextColor':'#000000','activationBorderColor':'#333333','activationBkgColor':'#eeeeee','sequenceNumberColor':'#ffffff'}}}%%
 graph TB
     classDef default fill:#fff,stroke:#333,color:#000,stroke-width:1px
     subgraph DDB["DynamoDB: telemetron-enrollments"]
@@ -135,7 +135,7 @@ graph TB
 ## 4. Repository / component map
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'primaryColor':'#f5f5f5','primaryTextColor':'#000','primaryBorderColor':'#333','lineColor':'#333','secondaryColor':'#e8e8e8','tertiaryColor':'#fafafa','noteTextColor':'#000','noteBkgColor':'#fffde7','noteBorderColor':'#333','actorTextColor':'#000','actorBkg':'#e3f2fd','actorBorder':'#333','signalColor':'#000','signalTextColor':'#000','labelTextColor':'#000','loopTextColor':'#000'}}}%%
+%%{init: {'theme':'neutral','themeVariables':{'background':'#ffffff','primaryColor':'#f5f5f5','primaryTextColor':'#000000','primaryBorderColor':'#333333','lineColor':'#333333','secondaryColor':'#e8e8e8','tertiaryColor':'#fafafa','noteTextColor':'#000000','noteBkgColor':'#fff9c4','noteBorderColor':'#555555','actorTextColor':'#000000','actorBkg':'#e3f2fd','actorBorder':'#333333','actorLineColor':'#333333','signalColor':'#000000','signalTextColor':'#000000','labelTextColor':'#000000','labelBoxBkgColor':'#fff9c4','labelBoxBorderColor':'#555555','loopTextColor':'#000000','activationBorderColor':'#333333','activationBkgColor':'#eeeeee','sequenceNumberColor':'#ffffff'}}}%%
 graph LR
     classDef default fill:#fff,stroke:#333,color:#000,stroke-width:1px
     subgraph L["inceptionstack/lowkey"]
@@ -203,7 +203,7 @@ Legend:
 ## 5. Data correlation (dashboard)
 
 ```mermaid
-%%{init: {'theme':'base','themeVariables':{'primaryColor':'#f5f5f5','primaryTextColor':'#000','primaryBorderColor':'#333','lineColor':'#333','secondaryColor':'#e8e8e8','tertiaryColor':'#fafafa','noteTextColor':'#000','noteBkgColor':'#fffde7','noteBorderColor':'#333','actorTextColor':'#000','actorBkg':'#e3f2fd','actorBorder':'#333','signalColor':'#000','signalTextColor':'#000','labelTextColor':'#000','loopTextColor':'#000'}}}%%
+%%{init: {'theme':'neutral','themeVariables':{'background':'#ffffff','primaryColor':'#f5f5f5','primaryTextColor':'#000000','primaryBorderColor':'#333333','lineColor':'#333333','secondaryColor':'#e8e8e8','tertiaryColor':'#fafafa','noteTextColor':'#000000','noteBkgColor':'#fff9c4','noteBorderColor':'#555555','actorTextColor':'#000000','actorBkg':'#e3f2fd','actorBorder':'#333333','actorLineColor':'#333333','signalColor':'#000000','signalTextColor':'#000000','labelTextColor':'#000000','labelBoxBkgColor':'#fff9c4','labelBoxBorderColor':'#555555','loopTextColor':'#000000','activationBorderColor':'#333333','activationBkgColor':'#eeeeee','sequenceNumberColor':'#ffffff'}}}%%
 graph LR
     classDef default fill:#fff,stroke:#333,color:#000,stroke-width:1px
     subgraph Sources["Telemetry sources"]
