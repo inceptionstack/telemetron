@@ -1,9 +1,9 @@
 # telemetron auto-enrollment plan (v0.3.0) — REVISED
 
-Status: **proposal v4 — pending final Codex review**
+Status: **proposal v5 — pending final Codex review**
 Author: Loki@FastStart
 Date: 2026-05-03
-Supersedes: v3 (v3 had concurrent first-enroll race: Query+PutItem on separate keys isn't atomic; v4 flips key design to fix it)
+Supersedes: v4 (v4 retry fallback was unimplementable — can't reconstruct a token from its hash; v5 stores token plaintext in DDB row; fixes stale revocation runbook + task wording)
 
 ## Problem
 
@@ -106,7 +106,8 @@ That's the only wire change. The bearer still authenticates; install_id is a cor
   2. Attempt DDB `PutItem` with `ConditionExpression=attribute_not_exists(install_id)`:
      ```
      PK        = install_id   (base-table PK; atomic uniqueness enforced here)
-     token_hash = sha256(token)  (lowercase hex, 64 chars)
+     token      = <plaintext token>   (DDB encrypted at rest; enables idempotent retry without re-mint)
+     token_hash = sha256(token)       (lowercase hex, 64 chars; GSI projection for authorizer lookups)
      GSI1 PK   = token_hash   (name: token-hash-index, projection: ALL)
      attrs     = machine_id, os, arch, source, telemetron_version, created_at,
                  revoked (bool, default false), revoked_at (nullable)
@@ -114,7 +115,7 @@ That's the only wire change. The bearer still authenticates; install_id is a cor
   3. Outcomes:
      - **`PutItem` succeeds** (no prior row) → return `{"token": "lpk_enroll_...", "install_id": "<echoed>"}`. First-writer wins atomically. No race between two concurrent first-enrolls.
      - **`ConditionalCheckFailedException`** (row exists) → `GetItem(PK=install_id)` to read existing row.
-       - Existing `machine_id` matches → return existing token (idempotent retry, client timed out and retried).
+       - Existing `machine_id` matches → return `row.token` (the stored plaintext). Idempotent retry is implementable because the token is stored, not just its hash.
        - Existing `machine_id` differs → **`409 Conflict`, no mutation.** Takeover attempt blocked.
 - **Rate limit:** reuse existing WAF rule pattern from `/v1/install` (per-IP 100/hour; global 5k/hour alarm)
 - **Retry safety:** concurrent or retried first-enrolls for the same `install_id` are serialised by the DDB conditional write. Only one token is ever minted per `install_id`.
@@ -133,9 +134,10 @@ That's the only wire change. The bearer still authenticates; install_id is a cor
 4. Before any AMP mirror: `attrs.pop("install_id", None)` — no durable per-install label in Prometheus plane.
 
 **Revocation path (operator-only, v0.3.0):**
-- Ops runs: `aws dynamodb update-item --table telemetron-enrollments --key '{"token_hash":{"S":"..."}}' --update-expression 'SET revoked = :t, revoked_at = :n' --expression-attribute-values '{":t":{"BOOL":true},":n":{"S":"<iso8601>"}}'`
+- Step 1 — look up `install_id` from the token: `aws dynamodb query --table-name telemetron-enrollments --index-name token-hash-index --key-condition-expression 'token_hash = :h' --expression-attribute-values '{":h":{"S":"<sha256-of-token>"}}'`
+- Step 2 — set revoked flag: `aws dynamodb update-item --table-name telemetron-enrollments --key '{"install_id":{"S":"<install-id-from-step-1>"}}' --update-expression 'SET revoked = :t, revoked_at = :n' --expression-attribute-values '{":t":{"BOOL":true},":n":{"S":"<iso8601>"}}'`
 - Next flush from that install returns 401.
-- No user-facing CLI in v0.3.0 (Codex explicitly said this is acceptable). CLI wrapper = v0.3.1.
+- No user-facing CLI in v0.3.0. CLI wrapper = v0.3.1.
 
 ### Dashboard
 
@@ -174,9 +176,9 @@ A `docs/privacy.md` ships in the same PR listing every attribute sent, retention
 
 | # | Task | Area | Effort |
 |---|------|------|--------|
-| 1 | DDB table `telemetron-enrollments` + GSI `install_id-index` (CDK) | Infra | XS (45m) |
-| 2 | `lambda-enroll/handler.py`: idempotent enroll, 409 on machine_id mismatch, WAF reuse | Backend | M (3h) |
-| 3 | Authorizer: accept `lpk_enroll_*` via DDB GetItem by token_hash + check `revoked` flag | Backend | S (2h) |
+| 1 | DDB table `telemetron-enrollments` + GSI `token-hash-index` (CDK) | Infra | XS (45m) |
+| 2 | `lambda-enroll/handler.py`: conditional PutItem, idempotent retry via stored token, 409 on machine_id mismatch, WAF reuse | Backend | M (3h) |
+| 3 | Authorizer: accept `lpk_enroll_*` via `Query GSI token-hash-index` + check `revoked` flag | Backend | S (2h) |
 | 4 | Ingest: strip client install_id, inject bound install_id from authorizer ctx, promote to top-level col, strip from AMP mirror | Backend | S (2h) |
 | 5 | Shared spec + frozen test vectors for `machine_id` algorithm (so lowkey + telemetron cannot drift) | Backend/Client | XS (45m) |
 | 6 | Telemetron: enroll client (Go, in `internal/enroll/`) + setup integration + retry-on-timeout idempotent semantics | Client | M (3h) |
@@ -200,12 +202,13 @@ A `docs/privacy.md` ships in the same PR listing every attribute sent, retention
 
 ## Changes since v2 (Codex-driven)
 
-## Changes since v3 (Codex v3 review)
+## Changes since v4 (Codex v4 review)
 
-| Codex finding | Fix in v4 |
+| Codex finding | Fix in v5 |
 |---|---|
-| Concurrent first-enroll race: Query+PutItem on separate keys isn't atomic → two writes could both succeed | Flipped key design: base-table PK = `install_id`, GSI PK = `token_hash`. Write uses `ConditionExpression=attribute_not_exists(install_id)` → DDB serialises concurrent first-enrolls atomically |
-| Stale wording in decision #3 conflicted with server-side rebinding in decision #10 | Decision #3 updated to state client value is a hint only, server overwrites |
+| Retry fallback unimplementable — can't reconstruct token from its hash | Store `token` plaintext in DDB row (encrypted at rest). `GetItem(PK=install_id)` on retry returns `row.token` directly |
+| Revocation runbook used old PK (`token_hash`) | Updated to two-step: `QueryGSI(token_hash) → UpdateItem(PK=install_id, SET revoked=true)` |
+| Task 1 + 3 wording stale (`install_id-index`, `GetItem by token_hash`) | Updated to `token-hash-index` and `Query GSI token-hash-index` |
 
 ## Changes since v2 (Codex v2 review)
 
@@ -220,10 +223,8 @@ A `docs/privacy.md` ships in the same PR listing every attribute sent, retention
 | `machine_id` algorithm drift risk | Shared spec + frozen test vectors (Task #5) |
 | `/etc/telemetron/install-id` permissions unclear | `0644` with rationale in privacy.md |
 
-## Open questions for Codex (v4 — final round)
+## Open questions for Codex (v5 — final round)
 
-1. Does the `ConditionExpression=attribute_not_exists(install_id)` PutItem with `ConditionalCheckFailedException` fallback correctly close the concurrent-enroll race blocker from your v3 review?
-2. With base-table PK = `install_id` and GSI `token-hash-index`, revocation by token requires a `QueryGSI → UpdateItem(PK=install_id)` two-step. Is that acceptable for the operator runbook, or do we need `token_hash` as a second base-table sort key?
-3. Anything else still wrong?
-
-If v4 is acceptable, say so explicitly and I'll hand it to Codex for implementation.
+1. Does storing `token` plaintext in the DDB row (DDB encrypted at rest) correctly fix the "retry fallback unimplementable" finding from your v4 review? Is there a security concern with the server storing plaintext tokens that outweighs the simplicity benefit?
+2. Is the two-step revocation runbook (`QueryGSI(token_hash) → UpdateItem(PK=install_id)`) correctly updated and acceptable?
+3. If both are acceptable: **explicitly accept v5** so I can hand it to Codex for implementation.
