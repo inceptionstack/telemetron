@@ -530,6 +530,7 @@ func TestRunSetup_AutoEnrollWritesInstallIDAndTokenFiles(t *testing.T) {
 	prevReadStatus := readSetupStatus
 	prevNewEnrollClient := newEnrollClient
 	prevComputeMachineID := computeMachineID
+	prevReadOrGenerate := readOrGenerateInstallID
 	prevSetupInstallIDPath := setupInstallIDPath
 	prevSetupTokenPath := setupTokenPath
 	t.Cleanup(func() {
@@ -540,6 +541,7 @@ func TestRunSetup_AutoEnrollWritesInstallIDAndTokenFiles(t *testing.T) {
 		readSetupStatus = prevReadStatus
 		newEnrollClient = prevNewEnrollClient
 		computeMachineID = prevComputeMachineID
+		readOrGenerateInstallID = prevReadOrGenerate
 		setupInstallIDPath = prevSetupInstallIDPath
 		setupTokenPath = prevSetupTokenPath
 	})
@@ -556,10 +558,24 @@ func TestRunSetup_AutoEnrollWritesInstallIDAndTokenFiles(t *testing.T) {
 	computeMachineID = func() (string, error) {
 		return "sha256:" + strings.Repeat("a", 64), nil
 	}
+	// Return the same install-id the fake server echoes, so the client's
+	// response-mismatch guard doesn't trip. Also persist to disk the way
+	// the real installid.ReadOrGenerate would, so the downstream file
+	// assertions remain meaningful.
+	readOrGenerateInstallID = func(path string) (string, error) {
+		if err := os.WriteFile(path, []byte(installID+"\n"), 0o644); err != nil {
+			return "", err
+		}
+		return installID, nil
+	}
 	setupInstallIDPath = installIDPath
 	setupTokenPath = tokenPath
 	newSetupService = func() service.Service {
-		return &writingSetupService{}
+		// Use a tempdir-aware service stub that writes the token to the
+		// path this test controls, rather than cfg.TokenFile (which would
+		// default to the real /etc/telemetron/token). This mirrors what
+		// the production service does, scoped to the test tempdir.
+		return &tempdirWritingSetupService{tokenPath: tokenPath}
 	}
 
 	cmd := newSetupCmd()
@@ -648,6 +664,24 @@ func (writingSetupService) InstallAs(cfg config.Config, token, _ string) error {
 func (writingSetupService) Uninstall() error                     { return nil }
 func (writingSetupService) EnableAndStart() error                { return nil }
 func (writingSetupService) ProbeStatus() (service.Status, error) { return service.Status{}, nil }
+
+// tempdirWritingSetupService persists the token to a caller-supplied
+// path rather than cfg.TokenFile. Used by tests that want to verify the
+// enrollment → install → token-on-disk flow without pre-seeding config.
+type tempdirWritingSetupService struct {
+	tokenPath string
+}
+
+func (tempdirWritingSetupService) Install(config.Config, string) error { return nil }
+func (s tempdirWritingSetupService) InstallAs(_ config.Config, token, _ string) error {
+	if err := os.MkdirAll(filepath.Dir(s.tokenPath), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(s.tokenPath, []byte(token), 0o400)
+}
+func (tempdirWritingSetupService) Uninstall() error                     { return nil }
+func (tempdirWritingSetupService) EnableAndStart() error                { return nil }
+func (tempdirWritingSetupService) ProbeStatus() (service.Status, error) { return service.Status{}, nil }
 
 func TestDefaultDeploymentID(t *testing.T) {
 	if got := defaultDeploymentID("main"); !startsWithLokiPrefix(got) {

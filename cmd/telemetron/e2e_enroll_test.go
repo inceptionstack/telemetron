@@ -89,19 +89,20 @@ func TestE2EEnrollAndMetricsFlow(t *testing.T) {
 	}
 	setupInstallIDPath = installIDPath
 	setupTokenPath = tokenPath
-	newSetupService = func() service.Service { return &e2eWritingSetupService{} }
+	newSetupService = func() service.Service { return &e2eWritingSetupService{tokenPath: tokenPath, configPath: configPath} }
 	t.Setenv("TELEMETRON_ENROLL_ENDPOINT", server.URL+"/v1/enroll")
 
 	cmd := newSetupCmd()
 	runArgs := &setupFlags{
-		nonInteractive: true,
-		yes:            true,
-		endpoint:       server.URL + "/v1/metrics",
-		mode:           "openclaw",
-		sessionDir:     filepath.Join(dir, "sessions"),
-		runAs:          "alice",
-		deploymentID:   "e2e-deployment",
-		tier:           "production",
+		nonInteractive:   true,
+		yes:              true,
+		endpoint:         server.URL + "/v1/metrics",
+		mode:             "openclaw",
+		sessionDir:       filepath.Join(dir, "sessions"),
+		runAs:            "alice",
+		deploymentID:     "e2e-deployment",
+		tier:             "production",
+		insecureEndpoint: true, // httptest servers are http://
 	}
 	if err := runSetup(cmd, runArgs); err != nil {
 		t.Fatal(err)
@@ -297,24 +298,42 @@ func captureResourceAttrs(req *colmetricpb.ExportMetricsServiceRequest) []map[st
 	return out
 }
 
-type e2eWritingSetupService struct{}
+type e2eWritingSetupService struct {
+	tokenPath  string
+	configPath string
+}
 
 func (e2eWritingSetupService) Install(config.Config, string) error { return nil }
-func (e2eWritingSetupService) InstallAs(cfg config.Config, token, _ string) error {
+func (s e2eWritingSetupService) InstallAs(cfg config.Config, token, _ string) error {
 	data, err := cfg.Marshal()
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(cfg.FilePath), 0o755); err != nil {
+	configTarget := s.configPath
+	if configTarget == "" {
+		configTarget = cfg.FilePath
+	}
+	tokenTarget := s.tokenPath
+	if tokenTarget == "" {
+		tokenTarget = cfg.TokenFile
+	}
+	if err := os.MkdirAll(filepath.Dir(configTarget), 0o755); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(cfg.TokenFile), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(tokenTarget), 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(cfg.FilePath, data, 0o644); err != nil {
+	if err := os.WriteFile(configTarget, data, 0o644); err != nil {
 		return err
 	}
-	return os.WriteFile(cfg.TokenFile, []byte(token), 0o400)
+	// Remove any stale 0400 token so a second setup run can overwrite
+	// it the way the real systemd service unit does (via atomic rename).
+	if _, err := os.Stat(tokenTarget); err == nil {
+		if err := os.Remove(tokenTarget); err != nil {
+			return err
+		}
+	}
+	return os.WriteFile(tokenTarget, []byte(token), 0o400)
 }
 func (e2eWritingSetupService) Uninstall() error                     { return nil }
 func (e2eWritingSetupService) EnableAndStart() error                { return nil }
