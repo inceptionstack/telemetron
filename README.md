@@ -147,13 +147,22 @@ The collector interface is intentionally additive. If you need support for anoth
 
 ## Disabling telemetry
 
-`clawtello` honors three opt-out signals, matching the `lowkey` installer family convention:
+`clawtello` honors its own opt-out signals **and** the [`lowkey`](https://github.com/inceptionstack/lowkey) installer-family signals, so a single opt-out disables both tools when they are deployed together:
 
-1. `DO_NOT_TRACK=1` — the [consoledonottrack.com](https://consoledonottrack.com) community standard. Truthy values: `1`, `true`, `yes`, `on` (case-insensitive).
-2. `CLAWTELLO_TELEMETRY=0` — tool-specific. Falsy values: `0`, `false`, `no`, `off` (case-insensitive). Unset means telemetry is enabled.
-3. `~/.clawtello/telemetry-off` — create this empty marker file when you can’t set env vars (for example when `clawtello` runs as its own service user).
+**Shared**
+- `DO_NOT_TRACK=1` — [consoledonottrack.com](https://consoledonottrack.com) community standard. Truthy: `1|true|yes|on` (case-insensitive).
+
+**clawtello-specific**
+- `CLAWTELLO_TELEMETRY=0` — falsy values `0|false|no|off` opt out; unset or any other value keeps telemetry enabled.
+- `~/.clawtello/telemetry-off` — marker file under the service user’s home.
+
+**Lowkey-family (inherited when deployed via `lowkey`)**
+- `LOWKEY_TELEMETRY=0`
+- `~/.lowkey/telemetry-off`
 
 When any signal is present, `clawtello start` exits cleanly without loading config, reading the token, or opening any sockets. `clawtello status` reports `telemetry: disabled (<source>)` instead of probing the service.
+
+Note: environment variables set in the interactive shell that ran the `lowkey` installer do **not** propagate into the `clawtello` systemd unit. For `lowkey`-installed deployments, `lowkey` should drop the marker file into the `clawtello` service user’s home so the opt-out sticks across restarts.
 
 ## Status
 

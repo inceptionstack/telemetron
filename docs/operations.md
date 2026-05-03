@@ -93,15 +93,22 @@ Checklist:
 
 ## Disabling telemetry
 
-Three opt-out signals, matching the `lowkey` installer family convention:
+Five opt-out signals honored, covering both standalone and lowkey-family deployments:
 
-- `DO_NOT_TRACK=1` — shared community standard. Truthy: `1|true|yes|on`.
-- `CLAWTELLO_TELEMETRY=0` — tool-specific. Falsy: `0|false|no|off`. Unset means telemetry stays enabled.
-- `~/.clawtello/telemetry-off` — marker file. Useful for the `clawtello` service user, where editing env vars needs a drop-in.
+**Shared**
+- `DO_NOT_TRACK=1` — community standard. Truthy: `1|true|yes|on`.
+
+**clawtello-specific**
+- `CLAWTELLO_TELEMETRY=0` — falsy: `0|false|no|off`. Unset = enabled.
+- `~/.clawtello/telemetry-off` — marker file under the service user’s home.
+
+**Lowkey-inherited**
+- `LOWKEY_TELEMETRY=0`
+- `~/.lowkey/telemetry-off`
 
 When any signal is present, `clawtello start` exits cleanly without loading config, reading the token, or opening any sockets.
 
-Example drop-in to opt out via env:
+### Env-var drop-in
 
 ```ini
 [Service]
@@ -110,10 +117,21 @@ Environment=DO_NOT_TRACK=1
 
 Apply with `sudo systemctl daemon-reload && sudo systemctl restart clawtello`.
 
-Or use the marker file:
+### Marker-file (preferred for lowkey deployments)
+
+Env vars set by the lowkey installer in the interactive shell do not propagate into systemd units. Use the marker file so the opt-out sticks across restarts:
 
 ```bash
+# Drop into the clawtello service user's home:
 sudo -u clawtello install -d -m 0700 ~clawtello/.clawtello
 sudo -u clawtello touch ~clawtello/.clawtello/telemetry-off
+sudo systemctl restart clawtello
+```
+
+Or honor lowkey’s marker directly:
+
+```bash
+sudo -u clawtello install -d -m 0700 ~clawtello/.lowkey
+sudo -u clawtello touch ~clawtello/.lowkey/telemetry-off
 sudo systemctl restart clawtello
 ```
