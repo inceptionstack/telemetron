@@ -5,10 +5,12 @@
 package service
 
 import (
+	"errors"
 	"os"
 	"os/user"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/inceptionstack/telemetron/internal/config"
 	"github.com/stretchr/testify/require"
@@ -246,3 +248,60 @@ func TestInstallAsExplicitOverride(t *testing.T) {
 	require.Contains(t, unit, "User=alice")
 	require.Contains(t, unit, "Group=alice")
 }
+
+func TestSetupPreconditionDetectsSystemd(t *testing.T) {
+	prevStat := systemdStat
+	prevLookPath := systemdLookPath
+	prevRunOutput := systemdRunOutput
+	prevReadInit := readInitProcess
+	t.Cleanup(func() {
+		systemdStat = prevStat
+		systemdLookPath = prevLookPath
+		systemdRunOutput = prevRunOutput
+		readInitProcess = prevReadInit
+	})
+
+	systemdStat = func(path string) (os.FileInfo, error) {
+		return fakeFileInfo{dir: true}, nil
+	}
+	systemdLookPath = func(file string) (string, error) { return "", errors.New("unexpected") }
+	systemdRunOutput = func(name string, args ...string) ([]byte, error) {
+		return nil, errors.New("unexpected")
+	}
+
+	require.NoError(t, SetupPrecondition())
+}
+
+func TestSetupPreconditionRejectsNonSystemdLinux(t *testing.T) {
+	prevStat := systemdStat
+	prevLookPath := systemdLookPath
+	prevRunOutput := systemdRunOutput
+	prevReadInit := readInitProcess
+	t.Cleanup(func() {
+		systemdStat = prevStat
+		systemdLookPath = prevLookPath
+		systemdRunOutput = prevRunOutput
+		readInitProcess = prevReadInit
+	})
+
+	systemdStat = func(path string) (os.FileInfo, error) { return nil, os.ErrNotExist }
+	systemdLookPath = func(file string) (string, error) { return "", errors.New("missing") }
+	systemdRunOutput = func(name string, args ...string) ([]byte, error) {
+		return nil, errors.New("unexpected")
+	}
+	readInitProcess = func(path string) ([]byte, error) { return []byte("bash\n"), nil }
+
+	err := SetupPrecondition()
+	require.EqualError(t, err, "telemetron setup requires systemd; detected init: bash. Use 'telemetron install' + manual service management.")
+}
+
+type fakeFileInfo struct {
+	dir bool
+}
+
+func (f fakeFileInfo) Name() string       { return "systemd" }
+func (f fakeFileInfo) Size() int64        { return 0 }
+func (f fakeFileInfo) Mode() os.FileMode  { return 0o755 }
+func (f fakeFileInfo) ModTime() time.Time { return time.Time{} }
+func (f fakeFileInfo) IsDir() bool        { return f.dir }
+func (f fakeFileInfo) Sys() any           { return nil }

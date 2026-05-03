@@ -3,6 +3,8 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -179,6 +181,35 @@ func TestResolveDetection_UsesUniqueRootHomeCandidate(t *testing.T) {
 	}
 	if d.RunAsUser != "alice" || d.SessionDir != "/home/alice/.openclaw/agents/main/sessions" || d.Mode != "openclaw" {
 		t.Fatalf("unexpected detection: %+v", d)
+	}
+}
+
+func TestRunSetup_FailsPreconditionWhenSystemdMissing(t *testing.T) {
+	resetEnv(t)
+
+	prevPlatform := setupPlatform
+	prevPrecondition := setupServicePrecondition
+	t.Cleanup(func() {
+		setupPlatform = prevPlatform
+		setupServicePrecondition = prevPrecondition
+	})
+
+	setupPlatform = "linux"
+	setupServicePrecondition = func() error {
+		return errors.New("telemetron setup requires systemd; detected init: bash. Use 'telemetron install' + manual service management.")
+	}
+
+	cmd := newSetupCmd()
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	err := runSetup(cmd, &setupFlags{})
+	if err == nil {
+		t.Fatal("expected precondition failure")
+	}
+	if err.Error() != "precondition_failed: telemetron setup requires systemd; detected init: bash. Use 'telemetron install' + manual service management." {
+		t.Fatalf("unexpected error: %q", err)
 	}
 }
 

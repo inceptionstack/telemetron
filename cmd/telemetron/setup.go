@@ -24,6 +24,7 @@ var (
 	setupPlatform              = runtime.GOOS
 	setupGeteuid               = os.Geteuid
 	findOpenClawMainCandidates = agentdetect.FindOpenClawMainCandidates
+	setupServicePrecondition   = service.SetupPrecondition
 )
 
 const unresolvedRootSessionHint = "cannot resolve session-dir under UID 0 with no $SUDO_USER set.\nPass --run-as <user> --session-dir <path>, or set TELEMETRON_RUN_AS /\nTELEMETRON_SESSION_DIR."
@@ -138,6 +139,9 @@ func runSetup(cmd *cobra.Command, f *setupFlags) error {
 	if setupPlatform == "darwin" {
 		return emitter.errorEnvelope(setupevents.ErrPreconditionFailed, nil,
 			"telemetron setup is not supported on macOS; see docs/macos.md", nil)
+	}
+	if err := setupServicePrecondition(); err != nil {
+		return emitter.errorEnvelope(setupevents.ErrPreconditionFailed, nil, "", err)
 	}
 
 	// --- 1. Resolve agent detection ---------------------------------------

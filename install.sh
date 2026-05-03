@@ -156,6 +156,12 @@ printf '\ntelemetron-install: installed %s\n' "$bindir/telemetron"
 # If the caller supplied an endpoint and a token source, run
 # `telemetron setup` non-interactively so the whole thing is one call.
 if [ -n "$SETUP_ENDPOINT" ] || [ -n "$SETUP_TOKEN" ] || [ -n "$SETUP_TOKEN_FILE" ] || [ -n "$SETUP_TOKEN_SECRET" ]; then
+  if [ "$os" = "darwin" ]; then
+    printf 'telemetron-install: binary installed; skipping auto-setup because systemd service auto-setup is Linux-only\n'
+    printf '  run telemetron manually or under launchd on macOS; see docs/macos.md\n'
+    exit 0
+  fi
+
   if [ -z "$SETUP_ENDPOINT" ]; then
     printf 'telemetron-install: TELEMETRON_ENDPOINT is required when a token source is set\n' >&2
     exit 1
