@@ -7,6 +7,7 @@ Final design (plan v6, Codex-accepted). Commit: `d2c438c` on branch `v0.3.0-enro
 ## 1. Enrollment flow (happy path + retry + takeover attempt)
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#f5f5f5','primaryTextColor':'#000','primaryBorderColor':'#333','lineColor':'#333','secondaryColor':'#e8e8e8','tertiaryColor':'#fafafa','noteTextColor':'#000','noteBkgColor':'#fffde7','noteBorderColor':'#333','actorTextColor':'#000','actorBkg':'#e3f2fd','actorBorder':'#333','signalColor':'#000','signalTextColor':'#000','labelTextColor':'#000','loopTextColor':'#000'}}}%%
 sequenceDiagram
     autonumber
     participant L as Lowkey installer<br/>(install.sh)
@@ -15,7 +16,7 @@ sequenceDiagram
     participant LE as lambda-enroll
     participant DDB as DynamoDB<br/>telemetron-enrollments
 
-    rect rgb(230, 245, 230)
+    rect rgb(200, 235, 200)
     Note over L,DDB: Happy path — first enroll
     L->>L: generate install_id (UUIDv4)<br/>+ machine_id (sha256)
     L->>AGW: POST /v1/enroll<br/>{install_id, machine_id, os, arch, ...}
@@ -28,7 +29,7 @@ sequenceDiagram
     L->>L: write /etc/telemetron/token (0400)<br/>+ /etc/telemetron/install-id (0644)
     end
 
-    rect rgb(245, 245, 230)
+    rect rgb(240, 230, 180)
     Note over T,DDB: Retry after client timeout (idempotent)
     T->>AGW: POST /v1/enroll (same install_id + machine_id)
     AGW->>LE: invoke
@@ -41,7 +42,7 @@ sequenceDiagram
     AGW-->>T: 200 (same token as before)
     end
 
-    rect rgb(250, 230, 230)
+    rect rgb(245, 200, 200)
     Note over T,DDB: Takeover attempt — blocked
     T->>AGW: POST /v1/enroll<br/>(guessed install_id,<br/>attacker machine_id)
     AGW->>LE: invoke
@@ -60,6 +61,7 @@ sequenceDiagram
 ## 2. Metrics flush & authorization (steady state)
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#f5f5f5','primaryTextColor':'#000','primaryBorderColor':'#333','lineColor':'#333','secondaryColor':'#e8e8e8','tertiaryColor':'#fafafa','noteTextColor':'#000','noteBkgColor':'#fffde7','noteBorderColor':'#333','actorTextColor':'#000','actorBkg':'#e3f2fd','actorBorder':'#333','signalColor':'#000','signalTextColor':'#000','labelTextColor':'#000','loopTextColor':'#000'}}}%%
 sequenceDiagram
     autonumber
     participant TX as telemetron<br/>(OTLP exporter)
@@ -99,7 +101,9 @@ sequenceDiagram
 ## 3. DynamoDB key design & IAM boundaries
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#f5f5f5','primaryTextColor':'#000','primaryBorderColor':'#333','lineColor':'#333','secondaryColor':'#e8e8e8','tertiaryColor':'#fafafa','noteTextColor':'#000','noteBkgColor':'#fffde7','noteBorderColor':'#333','actorTextColor':'#000','actorBkg':'#e3f2fd','actorBorder':'#333','signalColor':'#000','signalTextColor':'#000','labelTextColor':'#000','loopTextColor':'#000'}}}%%
 graph TB
+    classDef default fill:#fff,stroke:#333,color:#000,stroke-width:1px
     subgraph DDB["DynamoDB: telemetron-enrollments"]
         BASE["Base table<br/>────────────────<br/>PK: install_id<br/>────────────────<br/>token (plaintext, AES-256 at rest)<br/>token_hash<br/>machine_id<br/>os, arch, source<br/>revoked, revoked_at<br/>created_at"]
         GSI["GSI: token-hash-index<br/>────────────────<br/>PK: token_hash<br/>────────────────<br/>Projection: INCLUDE<br/>install_id<br/>revoked<br/>machine_id<br/><br/>❌ token NOT projected"]
@@ -119,9 +123,9 @@ graph TB
     OPERATOR -->|UpdateItem SET revoked=true| BASE
     INGEST -.->|no direct access| DDB
 
-    classDef danger fill:#fdd,stroke:#c33
-    classDef safe fill:#dfd,stroke:#3a3
-    classDef neutral fill:#ddf,stroke:#33c
+    classDef danger fill:#fdd,stroke:#c33,color:#000
+    classDef safe fill:#dfd,stroke:#3a3,color:#000
+    classDef neutral fill:#ddf,stroke:#33c,color:#000
     class ENROLL danger
     class AUTHZ,INGEST,OPERATOR safe
 ```
@@ -131,7 +135,9 @@ graph TB
 ## 4. Repository / component map
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#f5f5f5','primaryTextColor':'#000','primaryBorderColor':'#333','lineColor':'#333','secondaryColor':'#e8e8e8','tertiaryColor':'#fafafa','noteTextColor':'#000','noteBkgColor':'#fffde7','noteBorderColor':'#333','actorTextColor':'#000','actorBkg':'#e3f2fd','actorBorder':'#333','signalColor':'#000','signalTextColor':'#000','labelTextColor':'#000','loopTextColor':'#000'}}}%%
 graph LR
+    classDef default fill:#fff,stroke:#333,color:#000,stroke-width:1px
     subgraph L["inceptionstack/lowkey"]
         INSTALLSH["install.sh<br/>(existing + 1 new enroll call)"]
     end
@@ -179,9 +185,9 @@ graph LR
     INGEST_LAMBDA --> FH
     FH --> ATHENA
 
-    classDef new fill:#cfc,stroke:#3a3,stroke-width:2px
-    classDef modified fill:#ffc,stroke:#aa3,stroke-width:2px
-    classDef existing fill:#eee,stroke:#888
+    classDef new fill:#cfc,stroke:#3a3,stroke-width:2px,color:#000
+    classDef modified fill:#ffc,stroke:#aa3,stroke-width:2px,color:#000
+    classDef existing fill:#eee,stroke:#888,color:#000
     class ENROLL_LAMBDA,TENROLL,TSHARED,DDB_T new
     class INSTALLSH,TEXPORT,AUTHZ_LAMBDA,INGEST_LAMBDA,TSETUP modified
     class INSTALL_LAMBDA,APIGW,WAF,FH,ATHENA existing
@@ -197,7 +203,9 @@ Legend:
 ## 5. Data correlation (dashboard)
 
 ```mermaid
+%%{init: {'theme':'base','themeVariables':{'primaryColor':'#f5f5f5','primaryTextColor':'#000','primaryBorderColor':'#333','lineColor':'#333','secondaryColor':'#e8e8e8','tertiaryColor':'#fafafa','noteTextColor':'#000','noteBkgColor':'#fffde7','noteBorderColor':'#333','actorTextColor':'#000','actorBkg':'#e3f2fd','actorBorder':'#333','signalColor':'#000','signalTextColor':'#000','labelTextColor':'#000','loopTextColor':'#000'}}}%%
 graph LR
+    classDef default fill:#fff,stroke:#333,color:#000,stroke-width:1px
     subgraph Sources["Telemetry sources"]
         LOWKEY["lowkey install.sh<br/>beacon"]
         TX["telemetron<br/>(continuous flushes)"]
@@ -217,7 +225,7 @@ graph LR
     INSTALL --> Q
     METRICS --> Q
 
-    classDef key fill:#fec,stroke:#c80,stroke-width:2px
+    classDef key fill:#fec,stroke:#c80,stroke-width:2px,color:#000
     class Q key
 ```
 
