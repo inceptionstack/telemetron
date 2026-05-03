@@ -7,7 +7,7 @@ import (
 	"os"
 	"runtime"
 
-	_ "github.com/inceptionstack/loki-otl/internal/openclaw"
+	_ "github.com/inceptionstack/clawtello/internal/openclaw"
 	"github.com/spf13/cobra"
 )
 
@@ -29,11 +29,11 @@ func main() {
 
 func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "lokiotel",
+		Use:   "clawtello",
 		Short: "Loki OTel sidecar",
 	}
-	cmd.PersistentFlags().StringVar(&configPath, "config", "", "config file path (env: LOKIOTEL_CONFIG, default: platform-specific)")
-	cmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "trace|debug|info|warn|error (env: LOKIOTEL_LOG_LEVEL, config: log_level)")
+	cmd.PersistentFlags().StringVar(&configPath, "config", "", "config file path (env: CLAWTELLO_CONFIG, default: platform-specific)")
+	cmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "trace|debug|info|warn|error (env: CLAWTELLO_LOG_LEVEL, config: log_level)")
 	cmd.AddCommand(newInstallCmd(), newUninstallCmd(), newStartCmd(), newStatusCmd(), newVersionCmd())
 	return cmd
 }

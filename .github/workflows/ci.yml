@@ -26,7 +26,7 @@ jobs:
       - run: go mod download
       - run: go vet ./...
       - run: go test -race -coverprofile=coverage.out ./...
-      - run: go build -trimpath -ldflags "-X main.version=ci -X main.commit=${{ github.sha }} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" ./cmd/lokiotel
+      - run: go build -trimpath -ldflags "-X main.version=ci -X main.commit=${{ github.sha }} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" ./cmd/clawtello
 
   lint:
     runs-on: ubuntu-latest

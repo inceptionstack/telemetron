@@ -8,10 +8,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/inceptionstack/loki-otl/internal/collectorapi"
-	"github.com/inceptionstack/loki-otl/internal/config"
-	"github.com/inceptionstack/loki-otl/internal/contract"
-	"github.com/inceptionstack/loki-otl/internal/status"
+	"github.com/inceptionstack/clawtello/internal/collectorapi"
+	"github.com/inceptionstack/clawtello/internal/config"
+	"github.com/inceptionstack/clawtello/internal/contract"
+	"github.com/inceptionstack/clawtello/internal/status"
 )
 
 func init() {

@@ -55,8 +55,8 @@ testmode:
 `
 	require.NoError(t, os.WriteFile(configPath, []byte(configYAML), 0o644))
 
-	t.Setenv("LOKIOTEL_ENDPOINT", "https://env.example/v1/metrics")
-	t.Setenv("LOKIOTEL_MODE", "testmode")
+	t.Setenv("CLAWTELLO_ENDPOINT", "https://env.example/v1/metrics")
+	t.Setenv("CLAWTELLO_MODE", "testmode")
 
 	cfg, err := Load(LoadOptions{
 		ConfigPath: configPath,

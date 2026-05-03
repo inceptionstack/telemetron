@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"os"
 
-	"github.com/inceptionstack/loki-otl/internal/fsatomic"
+	"github.com/inceptionstack/clawtello/internal/fsatomic"
 )
 
 type FileState struct {

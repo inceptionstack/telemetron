@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a reproducible problem in loki-otl
+about: Report a reproducible problem in clawtello
 title: "bug: "
 labels: ["bug"]
 assignees: []
@@ -26,7 +26,7 @@ What happened instead?
 
 ## Environment
 
-- `lokiotel` version:
+- `clawtello` version:
 - OS:
 - install method:
 - collector mode:

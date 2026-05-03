@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/inceptionstack/loki-otl/internal/fsatomic"
+	"github.com/inceptionstack/clawtello/internal/fsatomic"
 )
 
 type Snapshot struct {

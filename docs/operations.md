@@ -1,27 +1,27 @@
 # Operations
 
-These notes cover routine Linux service operation for `lokiotel`.
+These notes cover routine Linux service operation for `clawtello`.
 
 ## Service files and drop-ins
 
-- Unit file: `/etc/systemd/system/lokiotel.service`
-- Config file: `/etc/lokiotel/config.yaml`
-- Token file: `/etc/lokiotel/token`
-- State directory: `/var/lib/lokiotel`
-- Systemd drop-ins: `/etc/systemd/system/lokiotel.service.d/*.conf`
+- Unit file: `/etc/systemd/system/clawtello.service`
+- Config file: `/etc/clawtello/config.yaml`
+- Token file: `/etc/clawtello/token`
+- State directory: `/var/lib/clawtello`
+- Systemd drop-ins: `/etc/systemd/system/clawtello.service.d/*.conf`
 
 Example drop-in workflow:
 
 ```bash
-sudo install -d -m 0755 /etc/systemd/system/lokiotel.service.d
-sudoedit /etc/systemd/system/lokiotel.service.d/override.conf
+sudo install -d -m 0755 /etc/systemd/system/clawtello.service.d
+sudoedit /etc/systemd/system/clawtello.service.d/override.conf
 sudo systemctl daemon-reload
-sudo systemctl restart lokiotel
+sudo systemctl restart clawtello
 ```
 
 ## Journald retention
 
-`lokiotel` logs to journald by default. On hosts with long retention windows, consider a dedicated journald drop-in to cap disk usage.
+`clawtello` logs to journald by default. On hosts with long retention windows, consider a dedicated journald drop-in to cap disk usage.
 
 Example:
 
@@ -35,24 +35,24 @@ Apply with:
 
 ```bash
 sudo install -d -m 0755 /etc/systemd/journald.conf.d
-sudoedit /etc/systemd/journald.conf.d/lokiotel.conf
+sudoedit /etc/systemd/journald.conf.d/clawtello.conf
 sudo systemctl restart systemd-journald
 ```
 
 ## Rolling tokens
 
-1. Write the new token to `/etc/lokiotel/token`.
+1. Write the new token to `/etc/clawtello/token`.
 2. Set mode `0400`.
-3. Ensure ownership matches the `lokiotel` service user on Linux.
+3. Ensure ownership matches the `clawtello` service user on Linux.
 4. Restart the service.
 
 Example:
 
 ```bash
-printf '%s\n' 'new-token' | sudo tee /etc/lokiotel/token >/dev/null
-sudo chown lokiotel:lokiotel /etc/lokiotel/token
-sudo chmod 0400 /etc/lokiotel/token
-sudo systemctl restart lokiotel
+printf '%s\n' 'new-token' | sudo tee /etc/clawtello/token >/dev/null
+sudo chown clawtello:clawtello /etc/clawtello/token
+sudo chmod 0400 /etc/clawtello/token
+sudo systemctl restart clawtello
 ```
 
 ## Observing status
@@ -60,10 +60,10 @@ sudo systemctl restart lokiotel
 Useful commands:
 
 ```bash
-./lokiotel status
-sudo systemctl status lokiotel
-sudo journalctl -u lokiotel -n 100 --no-pager
-sudo journalctl -u lokiotel -f
+./clawtello status
+sudo systemctl status clawtello
+sudo journalctl -u clawtello -n 100 --no-pager
+sudo journalctl -u clawtello -f
 ```
 
 Look for:
@@ -89,4 +89,4 @@ Checklist:
 4. Restart the service after token rotation.
 5. Check whether the server is rejecting caller metadata or tenant routing.
 
-`lokiotel` backs off after authorization failures, so repeated auth errors should be noisy but not request-storming.
+`clawtello` backs off after authorization failures, so repeated auth errors should be noisy but not request-storming.

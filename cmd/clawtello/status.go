@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/inceptionstack/loki-otl/internal/collectorapi"
-	"github.com/inceptionstack/loki-otl/internal/config"
-	"github.com/inceptionstack/loki-otl/internal/service"
-	"github.com/inceptionstack/loki-otl/internal/status"
+	"github.com/inceptionstack/clawtello/internal/collectorapi"
+	"github.com/inceptionstack/clawtello/internal/config"
+	"github.com/inceptionstack/clawtello/internal/service"
+	"github.com/inceptionstack/clawtello/internal/status"
 	"github.com/spf13/cobra"
 )
 
@@ -51,7 +51,7 @@ func newStatusCmd() *cobra.Command {
 			}
 
 			if !svcStatus.Active {
-				return fmt.Errorf("lokiotel is not active")
+				return fmt.Errorf("clawtello is not active")
 			}
 			return nil
 		},

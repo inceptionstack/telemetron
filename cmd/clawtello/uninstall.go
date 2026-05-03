@@ -5,7 +5,7 @@ package main
 import (
 	"errors"
 
-	"github.com/inceptionstack/loki-otl/internal/service"
+	"github.com/inceptionstack/clawtello/internal/service"
 	"github.com/spf13/cobra"
 )
 

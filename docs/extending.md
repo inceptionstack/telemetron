@@ -1,4 +1,4 @@
-# Extending `loki-otl`
+# Extending `clawtello`
 
 Adding a new collector mode is intentionally additive. The existing `openclaw` collector is the reference implementation.
 
@@ -7,7 +7,7 @@ Adding a new collector mode is intentionally additive. The existing `openclaw` c
 1. Create `internal/<mode>/` with a type that satisfies `collectorapi.Collector`.
 2. Implement a `DecodeFn`, `DefaultConfig`, and `Factory`.
 3. Register the collector from `init()` with `collectorapi.Register()`.
-4. Blank-import the package in `cmd/lokiotel/main.go`.
+4. Blank-import the package in `cmd/clawtello/main.go`.
 5. Add tests under `internal/<mode>/` and update the README platform notes if the new mode changes operator behavior.
 
 ## Example skeleton
@@ -22,10 +22,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/inceptionstack/loki-otl/internal/collectorapi"
-	"github.com/inceptionstack/loki-otl/internal/config"
-	"github.com/inceptionstack/loki-otl/internal/contract"
-	"github.com/inceptionstack/loki-otl/internal/status"
+	"github.com/inceptionstack/clawtello/internal/collectorapi"
+	"github.com/inceptionstack/clawtello/internal/config"
+	"github.com/inceptionstack/clawtello/internal/contract"
+	"github.com/inceptionstack/clawtello/internal/status"
 	"github.com/mitchellh/mapstructure"
 )
 
@@ -104,11 +104,11 @@ func defaultConfig(paths config.Paths) any {
 
 ## Registration note
 
-After adding the package, import it in `cmd/lokiotel/main.go`:
+After adding the package, import it in `cmd/clawtello/main.go`:
 
 ```go
 import (
-	_ "github.com/inceptionstack/loki-otl/internal/claudecode"
+	_ "github.com/inceptionstack/clawtello/internal/claudecode"
 )
 ```
 

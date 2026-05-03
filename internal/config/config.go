@@ -58,7 +58,7 @@ func Load(opts LoadOptions) (Config, error) {
 	paths := DefaultPaths(platform)
 
 	cfgPath := opts.ConfigPath
-	if envPath := os.Getenv("LOKIOTEL_CONFIG"); envPath != "" {
+	if envPath := os.Getenv("CLAWTELLO_CONFIG"); envPath != "" {
 		cfgPath = envPath
 	}
 	if cfgPath == "" {
@@ -115,10 +115,10 @@ func Load(opts LoadOptions) (Config, error) {
 
 func applyEnv(v *viper.Viper) {
 	envMap := map[string]any{
-		"endpoint":   os.Getenv("LOKIOTEL_ENDPOINT"),
-		"token_file": os.Getenv("LOKIOTEL_TOKEN_FILE"),
-		"mode":       os.Getenv("LOKIOTEL_MODE"),
-		"log_level":  os.Getenv("LOKIOTEL_LOG_LEVEL"),
+		"endpoint":   os.Getenv("CLAWTELLO_ENDPOINT"),
+		"token_file": os.Getenv("CLAWTELLO_TOKEN_FILE"),
+		"mode":       os.Getenv("CLAWTELLO_MODE"),
+		"log_level":  os.Getenv("CLAWTELLO_LOG_LEVEL"),
 	}
 	for key, value := range envMap {
 		if value != "" {
@@ -140,14 +140,14 @@ func (c Config) ValidateBootstrap() error {
 	if !modeRegistered(c.Mode) {
 		return fmt.Errorf("unsupported mode %q", c.Mode)
 	}
-	if c.TokenFile == "" && os.Getenv("LOKIOTEL_TOKEN") == "" {
-		return errors.New("token_file or LOKIOTEL_TOKEN is required")
+	if c.TokenFile == "" && os.Getenv("CLAWTELLO_TOKEN") == "" {
+		return errors.New("token_file or CLAWTELLO_TOKEN is required")
 	}
 	return nil
 }
 
 func (c Config) Token() (string, error) {
-	if token := os.Getenv("LOKIOTEL_TOKEN"); token != "" {
+	if token := os.Getenv("CLAWTELLO_TOKEN"); token != "" {
 		return strings.TrimSpace(token), nil
 	}
 	data, err := os.ReadFile(c.TokenFile)
@@ -165,8 +165,8 @@ func DefaultPaths(platform string) Paths {
 	switch platform {
 	case "darwin":
 		home := userHomeDir()
-		configDir := home + "/.config/lokiotel"
-		stateDir := home + "/.local/share/lokiotel"
+		configDir := home + "/.config/clawtello"
+		stateDir := home + "/.local/share/clawtello"
 		return Paths{
 			ConfigPath: configDir + "/config.yaml",
 			TokenFile:  configDir + "/token",
@@ -175,10 +175,10 @@ func DefaultPaths(platform string) Paths {
 		}
 	default:
 		return Paths{
-			ConfigPath: "/etc/lokiotel/config.yaml",
-			TokenFile:  "/etc/lokiotel/token",
-			StateDir:   "/var/lib/lokiotel",
-			StatusFile: "/var/lib/lokiotel/status.json",
+			ConfigPath: "/etc/clawtello/config.yaml",
+			TokenFile:  "/etc/clawtello/token",
+			StateDir:   "/var/lib/clawtello",
+			StatusFile: "/var/lib/clawtello/status.json",
 		}
 	}
 }

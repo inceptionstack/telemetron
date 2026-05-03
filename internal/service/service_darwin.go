@@ -4,7 +4,7 @@
 
 package service
 
-import "github.com/inceptionstack/loki-otl/internal/config"
+import "github.com/inceptionstack/clawtello/internal/config"
 
 type darwinService struct{}
 

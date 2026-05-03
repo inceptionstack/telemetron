@@ -1,15 +1,15 @@
 version: 2
 
-project_name: lokiotel
+project_name: clawtello
 
 before:
   hooks:
     - go mod download
 
 builds:
-  - id: lokiotel
-    main: ./cmd/lokiotel
-    binary: lokiotel
+  - id: clawtello
+    main: ./cmd/clawtello
+    binary: clawtello
     env:
       - CGO_ENABLED=0
     goos:

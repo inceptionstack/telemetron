@@ -1,12 +1,12 @@
 # Configuration Reference
 
-This document covers config keys, environment variables, CLI flags, and precedence rules for `lokiotel`.
+This document covers config keys, environment variables, CLI flags, and precedence rules for `clawtello`.
 
 ## Precedence
 
 Configuration is assembled in layers:
 
-1. `LOKIOTEL_CONFIG`, if set, decides which config file path is loaded.
+1. `CLAWTELLO_CONFIG`, if set, decides which config file path is loaded.
 2. Otherwise `--config` is used when provided.
 3. Otherwise the platform default config path is used.
 4. Values from the config file are loaded.
@@ -15,25 +15,25 @@ Configuration is assembled in layers:
 
 Special cases:
 
-- `LOKIOTEL_TOKEN` overrides `token_file` at runtime when `lokiotel start` reads credentials.
-- `lokiotel install` resolves the token in this order: `--token`, `LOKIOTEL_TOKEN`, existing token file.
-- `lokiotel install` resolves `--endpoint` and `--mode` before the config load, so those flags win over the corresponding environment variables.
+- `CLAWTELLO_TOKEN` overrides `token_file` at runtime when `clawtello start` reads credentials.
+- `clawtello install` resolves the token in this order: `--token`, `CLAWTELLO_TOKEN`, existing token file.
+- `clawtello install` resolves `--endpoint` and `--mode` before the config load, so those flags win over the corresponding environment variables.
 
 ## Platform defaults
 
 ### Linux
 
-- config: `/etc/lokiotel/config.yaml`
-- token: `/etc/lokiotel/token`
-- state dir: `/var/lib/lokiotel`
-- status file: `/var/lib/lokiotel/status.json`
+- config: `/etc/clawtello/config.yaml`
+- token: `/etc/clawtello/token`
+- state dir: `/var/lib/clawtello`
+- status file: `/var/lib/clawtello/status.json`
 
 ### macOS
 
-- config: `~/.config/lokiotel/config.yaml`
-- token: `~/.config/lokiotel/token`
-- state dir: `~/.local/share/lokiotel`
-- status file: `~/.local/share/lokiotel/status.json`
+- config: `~/.config/clawtello/config.yaml`
+- token: `~/.config/clawtello/token`
+- state dir: `~/.local/share/clawtello`
+- status file: `~/.local/share/clawtello/status.json`
 
 ## Top-level config keys
 
@@ -54,7 +54,7 @@ Special cases:
 ### `token_file`
 
 - Type: string
-- Required: yes unless `LOKIOTEL_TOKEN` is set
+- Required: yes unless `CLAWTELLO_TOKEN` is set
 - Purpose: file containing the bearer token
 - Recommended permissions: `0400`
 
@@ -127,34 +127,34 @@ Optional operator-supplied metadata attached as OTLP resource attributes for loc
 - Type: string
 - Required: yes
 - Default:
-  - Linux: `/var/lib/lokiotel/openclaw.state.json`
-  - macOS: `~/.local/share/lokiotel/openclaw.state.json`
+  - Linux: `/var/lib/clawtello/openclaw.state.json`
+  - macOS: `~/.local/share/clawtello/openclaw.state.json`
 - Purpose: durable offset store for session tailing
 
 ## Environment variables
 
-### `LOKIOTEL_CONFIG`
+### `CLAWTELLO_CONFIG`
 
 - Overrides the config file path selection
 
-### `LOKIOTEL_ENDPOINT`
+### `CLAWTELLO_ENDPOINT`
 
 - Overrides `endpoint`
 
-### `LOKIOTEL_TOKEN`
+### `CLAWTELLO_TOKEN`
 
 - Inline bearer token
 - Used at runtime instead of `token_file` when set
 
-### `LOKIOTEL_TOKEN_FILE`
+### `CLAWTELLO_TOKEN_FILE`
 
 - Overrides `token_file`
 
-### `LOKIOTEL_MODE`
+### `CLAWTELLO_MODE`
 
 - Overrides `mode`
 
-### `LOKIOTEL_LOG_LEVEL`
+### `CLAWTELLO_LOG_LEVEL`
 
 - Overrides `log_level`
 
@@ -165,14 +165,14 @@ Optional operator-supplied metadata attached as OTLP resource attributes for loc
 ### `--config`
 
 - Applies to: all commands
-- Purpose: choose config file path when `LOKIOTEL_CONFIG` is not set
+- Purpose: choose config file path when `CLAWTELLO_CONFIG` is not set
 
 ### `--log-level`
 
 - Applies to: `start`, `status`, `install`
 - Purpose: override `log_level`
 
-## `lokiotel install`
+## `clawtello install`
 
 Installs and starts the Linux systemd service. Unsupported on macOS and other non-Linux platforms.
 
@@ -186,19 +186,19 @@ Flags:
 - `--session-dir`: sets `<mode>.session_dir`
 - `--insecure-endpoint`: allows `http://` endpoints for local testing
 
-## `lokiotel start`
+## `clawtello start`
 
 Runs the collector in the foreground using the resolved config and token.
 
-## `lokiotel status`
+## `clawtello status`
 
 Prints service status and the last local status-file snapshot without making network calls.
 
-## `lokiotel uninstall`
+## `clawtello uninstall`
 
 Removes the installed Linux service unit but leaves config and state on disk.
 
-## `lokiotel version`
+## `clawtello version`
 
 Prints build metadata: version, commit, date, OS, and architecture.
 
@@ -207,7 +207,7 @@ Prints build metadata: version, commit, date, OS, and architecture.
 ```yaml
 mode: openclaw
 endpoint: https://your-otlp-gateway.example.com/v1/metrics
-token_file: /etc/lokiotel/token
+token_file: /etc/clawtello/token
 log_level: info
 insecure_endpoint: false
 
@@ -215,11 +215,11 @@ declared:
   deployment_id: dev-laptop
   tier: development
   environment: local
-  pack_version: lokiotel-0.2.0
+  pack_version: clawtello-0.2.0
 
 openclaw:
   session_dir: /home/you/.openclaw/agents/main/sessions
   flush_interval: 15s
   scan_interval: 15s
-  state_file: /var/lib/lokiotel/openclaw.state.json
+  state_file: /var/lib/clawtello/openclaw.state.json
 ```

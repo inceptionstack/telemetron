@@ -15,13 +15,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/inceptionstack/loki-otl/internal/config"
+	"github.com/inceptionstack/clawtello/internal/config"
 )
 
 const (
-	binaryPath = "/usr/local/bin/lokiotel"
-	unitPath   = "/etc/systemd/system/lokiotel.service"
-	configDir  = "/etc/lokiotel"
+	binaryPath = "/usr/local/bin/clawtello"
+	unitPath   = "/etc/systemd/system/clawtello.service"
+	configDir  = "/etc/clawtello"
 )
 
 type filesystem interface {
@@ -80,7 +80,7 @@ func (s *linuxService) Install(cfg config.Config, token string) error {
 	if err := s.ensureUser(); err != nil {
 		return err
 	}
-	account, err := s.lookupUser("lokiotel")
+	account, err := s.lookupUser("clawtello")
 	if err != nil {
 		return err
 	}
@@ -135,14 +135,14 @@ func (s *linuxService) EnableAndStart() error {
 	if err := s.run("systemctl", "daemon-reload"); err != nil {
 		return err
 	}
-	return s.run("systemctl", "enable", "--now", "lokiotel.service")
+	return s.run("systemctl", "enable", "--now", "clawtello.service")
 }
 
 func (s *linuxService) Uninstall() error {
 	if s.uid() != 0 {
 		return fmt.Errorf("this command must run as root")
 	}
-	_ = s.run("systemctl", "disable", "--now", "lokiotel.service")
+	_ = s.run("systemctl", "disable", "--now", "clawtello.service")
 	if err := s.fs.Remove(unitPath); err != nil && !errorsIsNotExist(err) {
 		return err
 	}
@@ -150,7 +150,7 @@ func (s *linuxService) Uninstall() error {
 }
 
 func (s *linuxService) ProbeStatus() (Status, error) {
-	out, err := s.runOutput("systemctl", "show", "lokiotel.service", "--property=LoadState,ActiveState,SubState,ActiveEnterTimestamp", "--value")
+	out, err := s.runOutput("systemctl", "show", "clawtello.service", "--property=LoadState,ActiveState,SubState,ActiveEnterTimestamp", "--value")
 	if err != nil {
 		return Status{Detail: "unknown"}, nil
 	}
@@ -178,9 +178,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=lokiotel
-Group=lokiotel
-ExecStart=/usr/local/bin/lokiotel start --config %s
+User=clawtello
+Group=clawtello
+ExecStart=/usr/local/bin/clawtello start --config %s
 Restart=on-failure
 RestartSec=10
 LimitCORE=0
@@ -188,7 +188,7 @@ ProtectSystem=strict
 ProtectHome=read-only
 PrivateTmp=true
 NoNewPrivileges=true
-ReadWritePaths=/var/lib/lokiotel
+ReadWritePaths=/var/lib/clawtello
 StandardOutput=journal
 StandardError=journal
 
@@ -213,19 +213,19 @@ func (s *linuxService) copySelf() error {
 }
 
 func (s *linuxService) ensureUser() error {
-	if _, err := s.runOutput("getent", "passwd", "lokiotel"); err == nil {
+	if _, err := s.runOutput("getent", "passwd", "clawtello"); err == nil {
 		return nil
 	}
 	if _, err := exec.LookPath("useradd"); err != nil {
-		return fmt.Errorf("useradd is required to create the lokiotel system user")
+		return fmt.Errorf("useradd is required to create the clawtello system user")
 	}
 	shells := []string{"/usr/sbin/nologin", "/sbin/nologin", "/bin/false"}
 	for _, shell := range shells {
-		if err := s.run("useradd", "--system", "--home-dir", "/var/lib/lokiotel", "--shell", shell, "lokiotel"); err == nil {
+		if err := s.run("useradd", "--system", "--home-dir", "/var/lib/clawtello", "--shell", shell, "clawtello"); err == nil {
 			return nil
 		}
 	}
-	return fmt.Errorf("failed to create lokiotel system user with useradd")
+	return fmt.Errorf("failed to create clawtello system user with useradd")
 }
 
 func (s *linuxService) chownRecursive(root string, uid, gid int) error {

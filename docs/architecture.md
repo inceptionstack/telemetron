@@ -1,6 +1,6 @@
 # Architecture
 
-`loki-otl` is a small pipeline: tail local session files, derive bounded counters, and export them to an OTLP/HTTP endpoint.
+`clawtello` is a small pipeline: tail local session files, derive bounded counters, and export them to an OTLP/HTTP endpoint.
 
 ## Flow
 

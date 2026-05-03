@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inceptionstack/loki-otl/internal/collectorapi"
-	"github.com/inceptionstack/loki-otl/internal/otlp"
-	"github.com/inceptionstack/loki-otl/internal/status"
+	"github.com/inceptionstack/clawtello/internal/collectorapi"
+	"github.com/inceptionstack/clawtello/internal/otlp"
+	"github.com/inceptionstack/clawtello/internal/status"
 	"github.com/stretchr/testify/require"
 )
 

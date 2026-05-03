@@ -1,8 +1,8 @@
-# lokiotel — Loki OTel sidecar
+# clawtello — Loki OTel sidecar
 
 ## Purpose
 
-A single small Go binary `lokiotel` that runs as a sidecar next to a Loki
+A single small Go binary `clawtello` that runs as a sidecar next to a Loki
 agent installation on the same host, reads that agent's local state, converts
 it to OTLP metrics, and ships them to a central OTLP ingester (today: our
 AWS API GW + Lambda ingester at
@@ -20,18 +20,18 @@ same allowlist, but:
 ## CLI shape
 
 ```
-lokiotel install          # install as a systemd unit and start it
-lokiotel uninstall        # stop + remove the systemd unit
-lokiotel start            # foreground run (used by the systemd unit)
-lokiotel status           # show unit state + last heartbeat + last export
-lokiotel help | --help    # usage
-lokiotel version          # build metadata
+clawtello install          # install as a systemd unit and start it
+clawtello uninstall        # stop + remove the systemd unit
+clawtello start            # foreground run (used by the systemd unit)
+clawtello status           # show unit state + last heartbeat + last export
+clawtello help | --help    # usage
+clawtello version          # build metadata
 ```
 
 Global flags:
 
 ```
---config <path>           # default /etc/lokiotel/config.yaml
+--config <path>           # default /etc/clawtello/config.yaml
 --log-level <level>       # trace|debug|info|warn|error (default info)
 ```
 
@@ -40,7 +40,7 @@ supplied on the CLI:
 
 ```
 --endpoint <url>          # OTEL_EXPORTER_OTLP_ENDPOINT
---token   <bearer>        # written to /etc/lokiotel/token (mode 0600)
+--token   <bearer>        # written to /etc/clawtello/token (mode 0600)
 --mode    <collection>    # "openclaw" (v1 only)
 --deployment-id <id>
 --tier    <internal|production|development|staging|unknown>
@@ -51,7 +51,7 @@ existing config file, then fail loudly with a helpful message.
 
 ## Config file
 
-`/etc/lokiotel/config.yaml` (created by `install`, editable by operator):
+`/etc/clawtello/config.yaml` (created by `install`, editable by operator):
 
 ```yaml
 # Collection style. v1 only supports "openclaw".
@@ -62,7 +62,7 @@ endpoint: https://your-otlp-gateway.example.com/v1/metrics
 
 # Path to a file containing the bearer token. Must be chmod 0600.
 # Never store the token inline in the YAML.
-token_file: /etc/lokiotel/token
+token_file: /etc/clawtello/token
 
 # Per-mode settings. Unknown keys for the selected mode must be rejected.
 openclaw:
@@ -80,18 +80,18 @@ declared:
   deployment_id: mvp-002
   tier: internal
   environment: development
-  pack_version: lokiotel-0.1
+  pack_version: clawtello-0.1
 ```
 
 Env-var overrides (these win over config file):
 
 ```
-LOKIOTEL_CONFIG              # override --config
-LOKIOTEL_ENDPOINT
-LOKIOTEL_TOKEN               # inline token (fallback if token_file missing)
-LOKIOTEL_TOKEN_FILE
-LOKIOTEL_MODE
-LOKIOTEL_LOG_LEVEL
+CLAWTELLO_CONFIG              # override --config
+CLAWTELLO_ENDPOINT
+CLAWTELLO_TOKEN               # inline token (fallback if token_file missing)
+CLAWTELLO_TOKEN_FILE
+CLAWTELLO_MODE
+CLAWTELLO_LOG_LEVEL
 ```
 
 ## Collection modes
@@ -114,7 +114,7 @@ Port of the existing `loki-pack-emitter.py` behaviour:
 
 1. Every `scan_interval`, list `*.jsonl` files under `session_dir`.
 2. For each file, remember the last byte offset processed in a durable
-   state file (`/var/lib/lokiotel/openclaw.state.json`). New files start
+   state file (`/var/lib/clawtello/openclaw.state.json`). New files start
    at offset 0. Reuse-after-rotate: if file size < last offset, reset to 0.
 3. Tail the new bytes, decode each line as JSON, and emit:
    * `pack.session.start` once per new session (first time a session file
@@ -172,15 +172,15 @@ never ship unsanitary metrics.
 
 ## Daemon install
 
-`lokiotel install`:
+`clawtello install`:
 
 1. Verify we're root (or running under sudo); bail with clean error otherwise.
-2. Copy the running binary to `/usr/local/bin/lokiotel` (skip if already
+2. Copy the running binary to `/usr/local/bin/clawtello` (skip if already
    identical).
-3. Create `/etc/lokiotel/` (0755) and write `config.yaml` if missing.
-4. Write the bearer token to `/etc/lokiotel/token` (0600, owner `lokiotel`
+3. Create `/etc/clawtello/` (0755) and write `config.yaml` if missing.
+4. Write the bearer token to `/etc/clawtello/token` (0600, owner `clawtello`
    if that user exists, else `root`).
-5. Install the systemd unit at `/etc/systemd/system/lokiotel.service`:
+5. Install the systemd unit at `/etc/systemd/system/clawtello.service`:
 
 ```ini
 [Unit]
@@ -190,9 +190,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=lokiotel
-Group=lokiotel
-ExecStart=/usr/local/bin/lokiotel start --config /etc/lokiotel/config.yaml
+User=clawtello
+Group=clawtello
+ExecStart=/usr/local/bin/clawtello start --config /etc/clawtello/config.yaml
 Restart=on-failure
 RestartSec=10
 # Don't leak secrets to journal.
@@ -201,7 +201,7 @@ ProtectSystem=strict
 ProtectHome=read-only
 PrivateTmp=true
 NoNewPrivileges=true
-ReadWritePaths=/var/lib/lokiotel
+ReadWritePaths=/var/lib/clawtello
 StandardOutput=journal
 StandardError=journal
 
@@ -209,17 +209,17 @@ StandardError=journal
 WantedBy=multi-user.target
 ```
 
-6. Create the `lokiotel` system user (no shell, home `/var/lib/lokiotel`)
+6. Create the `clawtello` system user (no shell, home `/var/lib/clawtello`)
    if it doesn't exist.
-7. `systemctl daemon-reload && systemctl enable --now lokiotel.service`.
+7. `systemctl daemon-reload && systemctl enable --now clawtello.service`.
 8. Print a one-line summary: endpoint, mode, deployment_id, unit status.
 
-`lokiotel uninstall` reverses 5/7 and leaves the config + state files in
+`clawtello uninstall` reverses 5/7 and leaves the config + state files in
 place (idempotent, safe to re-run).
 
 ## Status command
 
-`lokiotel status` should print (without hitting the network):
+`clawtello status` should print (without hitting the network):
 
 ```
 unit:          active (running) since 2026-05-02 22:10 UTC
@@ -229,7 +229,7 @@ deployment_id: mvp-002
 last flush:    2026-05-02 22:11:15 UTC (3s ago, 4 metrics)
 last heartbeat:2026-05-02 22:11:00 UTC (18s ago)
 session_dir:   $HOME/.openclaw/agents/main/sessions (103 files)
-state file:    /var/lib/lokiotel/openclaw.state.json (32 sessions tracked)
+state file:    /var/lib/clawtello/openclaw.state.json (32 sessions tracked)
 ```
 
 Heartbeat / flush timestamps live in a tiny status file the main process
@@ -251,11 +251,11 @@ writes on every tick. No IPC, just read-the-file.
 
 ```
 /
-├── cmd/lokiotel/main.go              # cobra root
-├── cmd/lokiotel/install.go
-├── cmd/lokiotel/uninstall.go
-├── cmd/lokiotel/start.go
-├── cmd/lokiotel/status.go
+├── cmd/clawtello/main.go              # cobra root
+├── cmd/clawtello/install.go
+├── cmd/clawtello/uninstall.go
+├── cmd/clawtello/start.go
+├── cmd/clawtello/status.go
 ├── internal/config/config.go         # YAML + env merge
 ├── internal/contract/allowlist.go    # metric names, attr keys, enums
 ├── internal/contract/normalize.go    # enum guarding
@@ -294,15 +294,15 @@ writes on every tick. No IPC, just read-the-file.
 
 ## What done looks like (ship checklist)
 
-- [ ] `go build ./cmd/lokiotel` produces a static arm64+amd64 binary.
-- [ ] `lokiotel install --endpoint ... --token ... --mode openclaw
+- [ ] `go build ./cmd/clawtello` produces a static arm64+amd64 binary.
+- [ ] `clawtello install --endpoint ... --token ... --mode openclaw
         --deployment-id mvp-002 --tier internal` on a fresh EC2 installs a
   working systemd unit within 5s.
-- [ ] `journalctl -u lokiotel` shows heartbeat flushes every 15s, HTTP 200.
+- [ ] `journalctl -u clawtello` shows heartbeat flushes every 15s, HTTP 200.
 - [ ] Central Grafana `Heartbeat rate` panel shows a new line for
   `deployment_id=mvp-002`.
-- [ ] `lokiotel status` prints unit + endpoint + last flush timestamps.
-- [ ] `lokiotel uninstall` cleanly removes the unit; re-running is a no-op.
+- [ ] `clawtello status` prints unit + endpoint + last flush timestamps.
+- [ ] `clawtello uninstall` cleanly removes the unit; re-running is a no-op.
 - [ ] CI is green on first PR.
 
 ## Non-goals
@@ -320,5 +320,5 @@ Resolve these in the README before merging v1:
    look at real jsonl samples; see the running
    `/opt/loki-pack-emitter/emitter.py` for the Python heuristics.)
 2. Do we want TLS pinning on the exporter? (MVP: no, just cert validation.)
-3. Where should `lokiotel status` store its cache? (Proposed:
-   `/var/lib/lokiotel/status.json`.)
+3. Where should `clawtello status` store its cache? (Proposed:
+   `/var/lib/clawtello/status.json`.)

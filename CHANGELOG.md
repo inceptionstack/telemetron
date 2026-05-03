@@ -19,6 +19,6 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ### Added
 
-- Scaffolded the `lokiotel` Go sidecar with `openclaw` collection mode.
+- Scaffolded the `clawtello` Go sidecar with `openclaw` collection mode.
 - Added config loading, durable offsets, OTLP/HTTP protobuf export, systemd lifecycle, and status reporting.
 - Added unit tests, Makefile targets, and GitHub Actions CI for test, lint, and module verification.

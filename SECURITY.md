@@ -12,7 +12,7 @@ Do not open public GitHub issues for unpatched vulnerabilities involving token e
 
 ## Scope
 
-The main threat model for `loki-otl` centers on:
+The main threat model for `clawtello` centers on:
 
 - bearer token theft
 - accidental leakage of prompt, response, or tool content

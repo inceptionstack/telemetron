@@ -5,7 +5,7 @@ package service
 import (
 	"errors"
 
-	"github.com/inceptionstack/loki-otl/internal/config"
+	"github.com/inceptionstack/clawtello/internal/config"
 )
 
 var ErrUnsupported = errors.New("platform does not support daemon install")

@@ -5,8 +5,8 @@ package collectorapi
 import (
 	"testing"
 
-	"github.com/inceptionstack/loki-otl/internal/config"
-	"github.com/inceptionstack/loki-otl/internal/status"
+	"github.com/inceptionstack/clawtello/internal/config"
+	"github.com/inceptionstack/clawtello/internal/status"
 	"github.com/stretchr/testify/require"
 )
 

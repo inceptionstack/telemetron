@@ -9,10 +9,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/inceptionstack/loki-otl/internal/collectorapi"
-	"github.com/inceptionstack/loki-otl/internal/config"
-	"github.com/inceptionstack/loki-otl/internal/otlp"
-	"github.com/inceptionstack/loki-otl/internal/status"
+	"github.com/inceptionstack/clawtello/internal/collectorapi"
+	"github.com/inceptionstack/clawtello/internal/config"
+	"github.com/inceptionstack/clawtello/internal/otlp"
+	"github.com/inceptionstack/clawtello/internal/status"
 	"github.com/spf13/cobra"
 )
 

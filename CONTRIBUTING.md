@@ -1,12 +1,12 @@
 # Contributing
 
-Thanks for contributing to `loki-otl`.
+Thanks for contributing to `clawtello`.
 
 ## Development setup
 
 ```bash
-git clone https://github.com/inceptionstack/loki-otl.git
-cd loki-otl
+git clone https://github.com/inceptionstack/clawtello.git
+cd clawtello
 go mod download
 make test
 make build
@@ -18,7 +18,7 @@ Useful commands:
 - `make lint`
 - `go vet ./...`
 - `go test -race ./...`
-- `go build ./cmd/lokiotel`
+- `go build ./cmd/clawtello`
 
 ## Project conventions
 
@@ -41,7 +41,7 @@ Use conventional commits where practical, for example:
 Before opening a PR:
 
 1. Run `go test ./...`.
-2. Run `go build ./cmd/lokiotel`.
+2. Run `go build ./cmd/clawtello`.
 3. Run `golangci-lint run`.
 4. Update `CHANGELOG.md` when the change is user-visible.
 5. Check docs links and examples.

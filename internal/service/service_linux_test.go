@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/inceptionstack/loki-otl/internal/config"
+	"github.com/inceptionstack/clawtello/internal/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -71,22 +71,22 @@ func (f *fakeFS) WalkDir(root string, fn filepath.WalkFunc) error {
 }
 
 func TestRenderUnitIncludesRequiredLines(t *testing.T) {
-	unit := renderUnit("/etc/lokiotel/config.yaml")
-	require.Contains(t, unit, "User=lokiotel")
-	require.Contains(t, unit, "ExecStart=/usr/local/bin/lokiotel start --config /etc/lokiotel/config.yaml")
-	require.Contains(t, unit, "ReadWritePaths=/var/lib/lokiotel")
+	unit := renderUnit("/etc/clawtello/config.yaml")
+	require.Contains(t, unit, "User=clawtello")
+	require.Contains(t, unit, "ExecStart=/usr/local/bin/clawtello start --config /etc/clawtello/config.yaml")
+	require.Contains(t, unit, "ReadWritePaths=/var/lib/clawtello")
 	require.Contains(t, unit, "ProtectSystem=strict")
 }
 
 func TestInstallChownsTokenAndStateDir(t *testing.T) {
 	fs := &fakeFS{
 		data: map[string][]byte{
-			"/tmp/lokiotel": []byte("bin"),
+			"/tmp/clawtello": []byte("bin"),
 		},
 		walks: map[string][]string{
-			"/var/lib/lokiotel": {
-				"/var/lib/lokiotel",
-				"/var/lib/lokiotel/existing.json",
+			"/var/lib/clawtello": {
+				"/var/lib/clawtello",
+				"/var/lib/clawtello/existing.json",
 			},
 		},
 	}
@@ -96,21 +96,21 @@ func TestInstallChownsTokenAndStateDir(t *testing.T) {
 			return nil
 		},
 		runOutput: func(name string, args ...string) ([]byte, error) {
-			return []byte("lokiotel:x:1001:1001::/var/lib/lokiotel:/usr/sbin/nologin"), nil
+			return []byte("clawtello:x:1001:1001::/var/lib/clawtello:/usr/sbin/nologin"), nil
 		},
 		lookupUser: func(username string) (*user.User, error) {
 			return &user.User{Uid: "1001", Gid: "1001"}, nil
 		},
-		executable: func() (string, error) { return "/tmp/lokiotel", nil },
+		executable: func() (string, error) { return "/tmp/clawtello", nil },
 		uid:        func() int { return 0 },
 	}
 	cfg := config.Config{
 		Mode:      "testmode",
 		Endpoint:  "https://example.test/v1/metrics",
-		TokenFile: "/etc/lokiotel/token",
-		FilePath:  "/etc/lokiotel/config.yaml",
+		TokenFile: "/etc/clawtello/token",
+		FilePath:  "/etc/clawtello/config.yaml",
 		Paths: config.Paths{
-			StateDir: "/var/lib/lokiotel",
+			StateDir: "/var/lib/clawtello",
 		},
 		Collectors: map[string]any{
 			"testmode": map[string]any{"session_dir": "/tmp/sessions"},
@@ -119,7 +119,7 @@ func TestInstallChownsTokenAndStateDir(t *testing.T) {
 
 	err := svc.Install(cfg, "secret")
 	require.NoError(t, err)
-	require.Contains(t, fs.chowns, "/etc/lokiotel/token")
-	require.Contains(t, fs.chowns, "/var/lib/lokiotel")
-	require.Contains(t, fs.chowns, "/var/lib/lokiotel/existing.json")
+	require.Contains(t, fs.chowns, "/etc/clawtello/token")
+	require.Contains(t, fs.chowns, "/var/lib/clawtello")
+	require.Contains(t, fs.chowns, "/var/lib/clawtello/existing.json")
 }

@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/inceptionstack/loki-otl/internal/contract"
-	"github.com/inceptionstack/loki-otl/internal/status"
+	"github.com/inceptionstack/clawtello/internal/contract"
+	"github.com/inceptionstack/clawtello/internal/status"
 )
 
 type FlushResult struct {

@@ -8,9 +8,9 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/inceptionstack/loki-otl/internal/config"
-	"github.com/inceptionstack/loki-otl/internal/otlp"
-	"github.com/inceptionstack/loki-otl/internal/status"
+	"github.com/inceptionstack/clawtello/internal/config"
+	"github.com/inceptionstack/clawtello/internal/otlp"
+	"github.com/inceptionstack/clawtello/internal/status"
 )
 
 type MetricSink interface {

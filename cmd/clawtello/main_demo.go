@@ -4,4 +4,4 @@
 
 package main
 
-import _ "github.com/inceptionstack/loki-otl/internal/demo"
+import _ "github.com/inceptionstack/clawtello/internal/demo"
