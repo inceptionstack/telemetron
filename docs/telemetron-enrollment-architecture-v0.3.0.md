@@ -72,6 +72,7 @@ sequenceDiagram
     participant FH as Firehose<br/>→ S3 / Athena
     participant AMP as Amazon Managed<br/>Prometheus
 
+    rect rgb(245, 250, 255)
     TX->>TX: add resource attr<br/>install_id=<from /etc/...>
     TX->>AGW: POST /v1/metrics<br/>Bearer lpk_enroll_xxx<br/>OTLP body
     AGW->>AUTH: authorize
@@ -93,6 +94,7 @@ sequenceDiagram
     and AMP mirror
       LI->>LI: attrs.pop("install_id", None)
       LI->>AMP: remote_write<br/>(no install_id label)
+    end
     end
 ```
 
