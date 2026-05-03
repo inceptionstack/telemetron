@@ -11,6 +11,7 @@ import (
 	"github.com/inceptionstack/clawtello/internal/config"
 	"github.com/inceptionstack/clawtello/internal/service"
 	"github.com/inceptionstack/clawtello/internal/status"
+	"github.com/inceptionstack/clawtello/internal/telemetry"
 	"github.com/spf13/cobra"
 )
 
@@ -19,6 +20,10 @@ func newStatusCmd() *cobra.Command {
 		Use:   "status",
 		Short: "Show service status without hitting the network",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if disabled, name, _ := telemetry.IsDisabled(); disabled {
+				fmt.Fprintf(cmd.OutOrStdout(), "telemetry:\tdisabled (via %s)\n", name)
+				return nil
+			}
 			svcStatus, err := service.New().ProbeStatus()
 			if err != nil {
 				return err

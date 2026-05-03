@@ -90,3 +90,16 @@ Checklist:
 5. Check whether the server is rejecting caller metadata or tenant routing.
 
 `clawtello` backs off after authorization failures, so repeated auth errors should be noisy but not request-storming.
+
+## Disabling telemetry
+
+Set `DO_NOT_TRACK=1` or `CLAWTELLO_DISABLE=1` in the service unit’s environment (drop-in override) to have `clawtello start` exit cleanly without loading config, reading the token, or opening any sockets. Truthy values are `1`, `true`, `yes`, `on` (case-insensitive).
+
+Example drop-in:
+
+```ini
+[Service]
+Environment=DO_NOT_TRACK=1
+```
+
+Apply with `sudo systemctl daemon-reload && sudo systemctl restart clawtello`.

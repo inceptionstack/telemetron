@@ -172,7 +172,7 @@ func (s *linuxService) ProbeStatus() (Status, error) {
 
 func renderUnit(configPath string) string {
 	return fmt.Sprintf(`[Unit]
-Description=Loki OTel sidecar
+Description=clawtello OTLP metrics sidecar
 After=network-online.target
 Wants=network-online.target
 

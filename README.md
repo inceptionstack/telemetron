@@ -53,9 +53,11 @@ sudo install -d -m 0755 /etc/clawtello
 printf '%s\n' 'replace-with-your-bearer-token' | sudo tee /etc/clawtello/token >/dev/null
 sudo chmod 0400 /etc/clawtello/token
 
+# The install command reads the token from /etc/clawtello/token by default.
+# Avoid passing --token on the CLI in production; it leaks into shell
+# history and the kernel process list.
 sudo ./clawtello install \
   --endpoint https://your-otlp-gateway.example.com/v1/metrics \
-  --token "$(sudo cat /etc/clawtello/token)" \
   --mode openclaw \
   --session-dir "$HOME/.openclaw/agents/main/sessions" \
   --deployment-id dev-laptop \
@@ -142,6 +144,15 @@ The collector interface is intentionally additive. If you need support for anoth
 ## Security
 
 `clawtello` is designed so message content never leaves the box. The collector emits only allowlisted metric names with a bounded attribute set, reads its bearer token from a `0400` file, and requires HTTPS by default. Plaintext endpoints are rejected unless `insecure_endpoint` is explicitly enabled for local testing.
+
+## Disabling telemetry
+
+`clawtello` respects the [`DO_NOT_TRACK`](https://consoledonottrack.com) convention. When either of these env vars is set to a truthy value (`1`, `true`, `yes`, `on`, case-insensitive), `clawtello start` exits immediately without loading config, reading the token, or opening any sockets.
+
+- `DO_NOT_TRACK` — shared community standard
+- `CLAWTELLO_DISABLE` — tool-specific override
+
+`clawtello status` reports `telemetry: disabled (via <VAR>)` instead of probing the service.
 
 ## Status
 

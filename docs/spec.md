@@ -1,18 +1,15 @@
-# clawtello — Loki OTel sidecar
+# clawtello — OTLP metrics sidecar for stateful agents
 
 ## Purpose
 
-A single small Go binary `clawtello` that runs as a sidecar next to a Loki
+A single small Go binary `clawtello` that tails local session state from
 agent installation on the same host, reads that agent's local state, converts
 it to OTLP metrics, and ships them to a central OTLP ingester (today: our
 AWS API GW + Lambda ingester at
 `https://your-otlp-gateway.example.com/v1/metrics`).
 
-Think of it as a generalised, pluggable replacement for the
-`loki-pack-emitter` Python MVP we're currently running. Same wire contract,
-same allowlist, but:
-
-* one static Go binary (no venv, no pip)
+Think of it as a generalised OTLP sidecar for any stateful agent that writes
+a session transcript to disk. One static Go binary (no venv, no pip),
 * config-driven "collection mode" so we can add more Loki flavours later
   without forking the emitter
 * daemon install/uninstall lifecycle built into the binary
@@ -40,7 +37,7 @@ supplied on the CLI:
 
 ```
 --endpoint <url>          # OTEL_EXPORTER_OTLP_ENDPOINT
---token   <bearer>        # written to /etc/clawtello/token (mode 0600)
+--token   <bearer>        # written to <token_file> (mode 0400)
 --mode    <collection>    # "openclaw" (v1 only)
 --deployment-id <id>
 --tier    <internal|production|development|staging|unknown>
@@ -178,13 +175,13 @@ never ship unsanitary metrics.
 2. Copy the running binary to `/usr/local/bin/clawtello` (skip if already
    identical).
 3. Create `/etc/clawtello/` (0755) and write `config.yaml` if missing.
-4. Write the bearer token to `/etc/clawtello/token` (0600, owner `clawtello`
+4. Write the bearer token to `/etc/clawtello/token` (0400, owner `clawtello`
    if that user exists, else `root`).
 5. Install the systemd unit at `/etc/systemd/system/clawtello.service`:
 
 ```ini
 [Unit]
-Description=Loki OTel sidecar
+Description=clawtello OTLP metrics sidecar
 After=network-online.target
 Wants=network-online.target
 
@@ -316,9 +313,10 @@ writes on every tick. No IPC, just read-the-file.
 
 Resolve these in the README before merging v1:
 
-1. How is `model.family` derivable from an openclaw session file? (Need to
-   look at real jsonl samples; see the running
-   `/opt/loki-pack-emitter/emitter.py` for the Python heuristics.)
+1. How is `model.family` derivable from an openclaw session file?
+   (Collectors are expected to map their native session format to a small
+   bounded enum of model families; contributors should document their
+   mapping in `docs/configuration.md`.)
 2. Do we want TLS pinning on the exporter? (MVP: no, just cert validation.)
 3. Where should `clawtello status` store its cache? (Proposed:
    `/var/lib/clawtello/status.json`.)

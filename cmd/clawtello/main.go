@@ -30,7 +30,7 @@ func main() {
 func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "clawtello",
-		Short: "Loki OTel sidecar",
+		Short: "OTLP metrics sidecar for stateful agents",
 	}
 	cmd.PersistentFlags().StringVar(&configPath, "config", "", "config file path (env: CLAWTELLO_CONFIG, default: platform-specific)")
 	cmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "trace|debug|info|warn|error (env: CLAWTELLO_LOG_LEVEL, config: log_level)")

@@ -13,6 +13,7 @@ import (
 	"github.com/inceptionstack/clawtello/internal/config"
 	"github.com/inceptionstack/clawtello/internal/otlp"
 	"github.com/inceptionstack/clawtello/internal/status"
+	"github.com/inceptionstack/clawtello/internal/telemetry"
 	"github.com/spf13/cobra"
 )
 
@@ -21,6 +22,14 @@ func newStartCmd() *cobra.Command {
 		Use:   "start",
 		Short: "Run in the foreground",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Honour user-facing opt-out BEFORE reading config, token,
+			// or opening any sockets. See internal/telemetry/optout.go.
+			if disabled, name, value := telemetry.IsDisabled(); disabled {
+				logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+				logger.Info("telemetry disabled via environment; exiting",
+					"var", name, "value", value)
+				return nil
+			}
 			cfg, err := config.Load(config.LoadOptions{
 				ConfigPath: configPath,
 				Overrides:  map[string]any{"log_level": logLevel},

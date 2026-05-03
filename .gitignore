@@ -1,5 +1,11 @@
+/clawtello
 /lokiotel
 /dist/
 /tmp/
+/vendor/
 *.log
 .env
+coverage.out
+coverage.html
+*.test
+*.prof

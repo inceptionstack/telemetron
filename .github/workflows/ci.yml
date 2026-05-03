@@ -78,3 +78,38 @@ jobs:
         with:
           version: v2.15.4
           args: release --snapshot --clean
+
+  secrets-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install git-secrets
+        run: |
+          git clone --depth 1 https://github.com/awslabs/git-secrets.git /tmp/git-secrets
+          sudo make -C /tmp/git-secrets install
+      - name: Configure git-secrets patterns
+        run: |
+          git secrets --register-aws
+          git secrets --add 'lpk_live_[0-9a-f]{32}'
+          git secrets --add 'lpk_[a-z]+_[0-9a-f]+'
+          git secrets --add 'ghp_[A-Za-z0-9]{36,}'
+          git secrets --add 'github_pat_[A-Za-z0-9_]{82,}'
+          git secrets --add 'x-access-token:[A-Za-z0-9_-]+'
+          git secrets --add --allowed 'replace-with-your-bearer-token'
+          git secrets --add --allowed 'your-otlp-gateway.example.com'
+      - name: Scan working tree
+        run: git secrets --scan
+      - name: Scan full history
+        run: git secrets --scan-history
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
