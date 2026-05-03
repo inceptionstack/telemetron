@@ -65,7 +65,12 @@ jobs:
           version: v2.15.4
           args: check
 
-  release-dryrun:
+  package:
+    # Only after every other gate is green. Produces the snapshot tarballs
+    # (linux/darwin + amd64/arm64) plus checksums, uploaded as a workflow
+    # artifact so every passing commit has a downloadable build.
+    needs: [test, lint, govulncheck, goreleaser-check, secrets-scan, gitleaks]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -78,6 +83,15 @@ jobs:
         with:
           version: v2.15.4
           args: release --snapshot --clean
+      - name: Upload snapshot artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: telemetron-snapshot-${{ github.sha }}
+          path: |
+            dist/*.tar.gz
+            dist/checksums.txt
+          if-no-files-found: error
+          retention-days: 30
 
   secrets-scan:
     runs-on: ubuntu-latest
