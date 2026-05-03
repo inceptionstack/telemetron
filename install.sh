@@ -262,8 +262,12 @@ if [ -n "$SETUP_ENDPOINT" ] || [ -n "$SETUP_TOKEN" ] || [ -n "$SETUP_TOKEN_FILE"
   # permissive than 0600 before we tighten it to 0400.
   token_staged="$($maybe_sudo sh -c 'umask 077 && mktemp /etc/telemetron/token.XXXXXX')"
   trap '[ -n "$token_staged" ] && $maybe_sudo rm -f "$token_staged" 2>/dev/null; rm -rf "$tmp"' EXIT INT TERM
-  # Write the token via stdin so it never appears in argv.
-  printf '%s\n' "$token_value" | $maybe_sudo tee "$token_staged" >/dev/null
+  # Write the token via stdin so it never appears in argv. No trailing
+  # newline: bearer tokens are presented verbatim as HTTP header values,
+  # and a stray LF at the end can corrupt the Authorization header or
+  # break strict authorizer regexes (observed in the loki-telemetry
+  # authorizer — see commit log).
+  printf '%s' "$token_value" | $maybe_sudo tee "$token_staged" >/dev/null
   $maybe_sudo chmod 0400 "$token_staged"
   $maybe_sudo chown root:root "$token_staged" 2>/dev/null || true
   $maybe_sudo mv -f "$token_staged" "$token_path"

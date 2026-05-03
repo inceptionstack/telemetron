@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	colmetricpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
@@ -40,9 +41,13 @@ func NewExporter(endpoint, token string, declared map[string]string, client *htt
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
+	// Defense in depth: bearer tokens must not contain leading/trailing
+	// whitespace or CR/LF. Trim here so an accidentally-miswritten token
+	// file does not produce a corrupt Authorization header that strict
+	// authorizers reject with 403 (we've seen this in production).
 	return &Exporter{
 		endpoint: endpoint,
-		token:    token,
+		token:    strings.Trim(token, " \t\r\n"),
 		client:   client,
 		declared: declared,
 	}

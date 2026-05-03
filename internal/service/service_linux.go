@@ -147,7 +147,11 @@ func (s *linuxService) InstallAs(cfg config.Config, token, runAsUser string) err
 	if err := s.fs.WriteFile(cfg.FilePath, data, 0o644); err != nil {
 		return err
 	}
-	if err := s.fs.WriteFile(cfg.TokenFile, []byte(token+"\n"), 0o400); err != nil {
+	// Write the bearer token verbatim — no trailing newline. Some
+	// authorizers (e.g. strict regex-based validators) will 403 if any
+	// whitespace bleeds into the Bearer header. The exporter side also
+	// trims defensively, but we keep disk and wire symmetrical.
+	if err := s.fs.WriteFile(cfg.TokenFile, []byte(token), 0o400); err != nil {
 		return err
 	}
 	if err := s.fs.Chown(cfg.TokenFile, uid, gid); err != nil {

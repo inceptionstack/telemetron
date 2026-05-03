@@ -49,3 +49,44 @@ func TestExporterPayloadShape(t *testing.T) {
 	require.Len(t, sum.DataPoints, 1)
 	require.EqualValues(t, 2, sum.DataPoints[0].GetAsInt())
 }
+
+// TestExporterTrimsTokenWhitespace guards against the production
+// incident where /etc/telemetron/token contained a trailing \n
+// (legitimate POSIX text-file convention) but the authorizer
+// regex required an exact bearer value. Tokens written by any
+// path — installer tee, editor save, `echo "$tok" >`, etc. —
+// must not produce a 403.
+func TestExporterTrimsTokenWhitespace(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		raw  string
+	}{
+		{"trailing LF", "lpk_live_abc\n"},
+		{"trailing CRLF", "lpk_live_abc\r\n"},
+		{"leading space", " lpk_live_abc"},
+		{"trailing space", "lpk_live_abc "},
+		{"leading tab trailing LF", "\tlpk_live_abc\n"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var gotAuth string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotAuth = r.Header.Get("Authorization")
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer server.Close()
+
+			exporter := NewExporter(server.URL, tc.raw, nil, server.Client())
+			_, err := exporter.Export(context.Background(), []Point{
+				{Name: "pack.tool.call", Count: 1},
+			})
+			require.NoError(t, err)
+			require.Equal(t, "Bearer lpk_live_abc", gotAuth,
+				"exporter must strip surrounding whitespace/CRLF from bearer token")
+		})
+	}
+}
