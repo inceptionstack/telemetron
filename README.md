@@ -36,7 +36,6 @@ Environment overrides:
 
 - `TELEMETRON_VERSION` — pin a specific release tag (default: latest)
 - `TELEMETRON_PREFIX` — install root (default: `$HOME/.local`)
-- `TELEMETRON_REPO` — owner/repo (default: `inceptionstack/telemetron`)
 
 ### Alternatives
 

@@ -11,7 +11,6 @@
 # Optional environment overrides:
 #   TELEMETRON_VERSION   pin a specific release tag (default: latest)
 #   TELEMETRON_PREFIX    install root (default: $HOME/.local, or /usr/local with sudo)
-#   TELEMETRON_REPO      owner/repo (default: inceptionstack/telemetron)
 #
 # The script is POSIX shell and uses only curl, tar, sha256sum|shasum, uname, sed.
 # It does NOT install the systemd service; that requires root. After install,
@@ -19,7 +18,7 @@
 
 set -eu
 
-REPO="${TELEMETRON_REPO:-inceptionstack/telemetron}"
+REPO="inceptionstack/telemetron"
 VERSION="${TELEMETRON_VERSION:-}"
 PREFIX_DEFAULT="$HOME/.local"
 PREFIX="${TELEMETRON_PREFIX:-$PREFIX_DEFAULT}"
