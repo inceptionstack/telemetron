@@ -729,6 +729,62 @@ func TestResolveHealthTimeout_RejectsInvalidValues(t *testing.T) {
 
 // --- helpers ------------------------------------------------------------
 
+// TestLoadExistingConfigReturnsNilWhenNoConfigFileOnDisk is a regression
+// test for the v0.3.0-enrollment show-stopper discovered on a clean
+// host (2026-05-03): config.Load returns a fully-defaulted Config{}
+// whenever ValidateBootstrap is satisfied — including the case where
+// TELEMETRON_ENDPOINT is set in the environment and no config file
+// exists on disk. loadExistingConfig used to report a non-nil
+// "existing install" in that case, and its default TokenFile
+// (/etc/telemetron/token) got assigned to r.tokenFile. That tripped
+// the tokenFile branch in loadTokenOrEnroll and auto-enroll never ran
+// on a fresh install — the primary use case of v0.3.0.
+//
+// If this test starts failing, setup will regress to "token_read_failed"
+// on every first-time install where TELEMETRON_ENDPOINT is exported
+// (which is the path every bundled installer uses).
+func TestLoadExistingConfigReturnsNilWhenNoConfigFileOnDisk(t *testing.T) {
+	resetEnv(t)
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "config.yaml")
+	t.Setenv("TELEMETRON_CONFIG", missing)
+	// Mirror the auto-enroll path: endpoint is set by the installer
+	// before setup runs, which makes config.Load's ValidateBootstrap
+	// pass with only defaults — the exact scenario that used to return
+	// a spurious non-nil Config from loadExistingConfig.
+	t.Setenv("TELEMETRON_ENDPOINT", "https://example.test/v1/metrics")
+	t.Setenv("TELEMETRON_MODE", "openclaw")
+
+	if got := loadExistingConfig(); got != nil {
+		t.Fatalf("loadExistingConfig() = %#v; want nil when %s does not exist", got, missing)
+	}
+}
+
+// TestLoadExistingConfigReturnsConfigWhenFileExists keeps the happy path
+// covered so the fix above doesn't silently over-correct and break the
+// "reconcile against an existing install" behaviour.
+func TestLoadExistingConfigReturnsConfigWhenFileExists(t *testing.T) {
+	resetEnv(t)
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	tokenPath := filepath.Join(dir, "token")
+	if err := os.WriteFile(cfgPath, []byte("mode: openclaw\nendpoint: https://example.test\ntoken_file: "+tokenPath+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TELEMETRON_CONFIG", cfgPath)
+
+	got := loadExistingConfig()
+	if got == nil {
+		t.Fatalf("loadExistingConfig() = nil; want *config.Config when %s exists", cfgPath)
+	}
+	if got.Endpoint != "https://example.test" {
+		t.Fatalf("Endpoint = %q; want https://example.test", got.Endpoint)
+	}
+	if got.TokenFile != tokenPath {
+		t.Fatalf("TokenFile = %q; want %q", got.TokenFile, tokenPath)
+	}
+}
+
 func resetEnv(t *testing.T) {
 	t.Helper()
 	for _, k := range []string{
@@ -736,6 +792,7 @@ func resetEnv(t *testing.T) {
 		"TELEMETRON_MODE", "TELEMETRON_SESSION_DIR", "TELEMETRON_RUN_AS",
 		"TELEMETRON_DEPLOYMENT_ID", "TELEMETRON_TIER", "TELEMETRON_HEALTH_TIMEOUT",
 		"TELEMETRON_NO_AUTO_ENROLL", "TELEMETRON_ENROLL_ENDPOINT", "SUDO_USER",
+		"TELEMETRON_CONFIG",
 	} {
 		t.Setenv(k, "")
 	}
