@@ -14,6 +14,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/inceptionstack/telemetron/internal/installid"
 )
 
 const (
@@ -24,7 +26,9 @@ const (
 )
 
 var (
-	uuidV4Re      = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	// install_id format validation is delegated to installid.Validate so
+	// there's a single source of truth for UUIDv4 acceptance across the
+	// client.
 	machineIDRe   = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 	enrollTokenRe = regexp.MustCompile(`^lpk_enroll_[0-9a-f]{64}$`)
 
@@ -150,7 +154,7 @@ type enrollResponsePayload struct {
 }
 
 func validateRequest(req EnrollRequest) error {
-	if !uuidV4Re.MatchString(req.InstallID) {
+	if !installid.Validate(req.InstallID) {
 		return fmt.Errorf("invalid install_id %q", req.InstallID)
 	}
 	if !machineIDRe.MatchString(req.MachineID) {
@@ -200,7 +204,7 @@ func parseResponse(resp *http.Response) (EnrollResponse, error) {
 	if !enrollTokenRe.MatchString(payloadResp.Token) {
 		return EnrollResponse{}, fmt.Errorf("malformed enroll token %q", payloadResp.Token)
 	}
-	if !uuidV4Re.MatchString(payloadResp.InstallID) {
+	if !installid.Validate(payloadResp.InstallID) {
 		return EnrollResponse{}, fmt.Errorf("malformed install_id %q", payloadResp.InstallID)
 	}
 

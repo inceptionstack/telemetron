@@ -18,7 +18,7 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 ### Changed
 
 - `telemetron start` now best-effort loads `/etc/telemetron/install-id` at startup and attaches it as the `install_id` OTLP resource attribute on every flush.
-- `telemetron setup` now skips anonymous enrollment when an existing token file, `TELEMETRON_TOKEN`, `TELEMETRON_TOKEN_FILE`, or `TELEMETRON_TOKEN_SECRET` is already in play, preserving prior precedence.
+- `telemetron setup` now skips anonymous enrollment when an existing token file, `TELEMETRON_TOKEN`, or `TELEMETRON_TOKEN_FILE` is already in play, preserving prior precedence. When `TELEMETRON_TOKEN_SECRET` is set but no token has been staged (e.g. `setup` was invoked directly instead of via `install.sh`), the command now hard-fails with `ErrTokenSecretNotResolved` rather than silently downgrading to anonymous auto-enroll.
 
 ### Notes
 

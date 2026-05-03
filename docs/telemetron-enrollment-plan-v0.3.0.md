@@ -143,7 +143,7 @@ That's the only wire change. The bearer still authenticates; install_id is a cor
 **Ingest Lambda changes (Codex-required):**
 1. Strip any client-supplied `install_id` from the incoming OTLP resource attrs.
 2. Replace with the authoritative `enrolled_install_id` from the authorizer context. This is the server-side binding that prevents join poisoning.
-3. Promote `install_id` from the resource-attrs map to an explicit top-level column on the Firehose record (for clean Athena joins).
+3. Promote `install_id` from the resource-attrs map to an explicit top-level column on the Firehose record (for clean Athena joins). **Deferred in v0.3.0 implementation** — the current `loki-telemetry` ingester has no Firehose sink (AMP `remote_write` only). `install_id` rebinding still happens on the OTel path. Firehose promotion ships when the warehouse sink is added (v0.3.2+).
 4. Before any AMP mirror: `attrs.pop("install_id", None)` — no durable per-install label in Prometheus plane.
 
 **Revocation path (operator-only, v0.3.0):**
@@ -162,7 +162,7 @@ JOIN   telemetron_metrics t ON i.install_id = t.install_id
 WHERE  i.outcome = 'completed'
 ```
 
-For this to work cleanly, ingest promotes `install_id` from the OTel resource-attrs map to an **explicit top-level column** in the Firehose record (Codex's #5 warning — don't rely on nested-attr extraction in Athena).
+For this to work cleanly, ingest promotes `install_id` from the OTel resource-attrs map to an **explicit top-level column** in the Firehose record (Codex's #5 warning — don't rely on nested-attr extraction in Athena). **Note (v0.3.0):** the current `loki-telemetry` ingester writes only to AMP `remote_write`, not Firehose. The Athena-join pattern is documented here for when a Firehose sink is added; the ingester already rebinds `install_id` server-side on the OTel path so the promotion is a no-op to layer on later.
 
 ## Privacy
 

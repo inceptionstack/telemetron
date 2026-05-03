@@ -35,7 +35,20 @@ var (
 )
 
 func explicitTokenSourceConfigured(r resolvedSetup) bool {
-	return r.tokenFile != "" || r.tokenFromEnv != "" || strings.TrimSpace(os.Getenv("TELEMETRON_TOKEN_SECRET")) != ""
+	return r.tokenFile != "" || r.tokenFromEnv != "" || tokenSecretIDSet()
+}
+
+// tokenSecretIDSet reports whether TELEMETRON_TOKEN_SECRET is non-empty.
+// The actual secret resolution happens upstream in install.sh, which
+// fetches from AWS Secrets Manager and writes /etc/telemetron/token
+// before invoking `telemetron setup --token-file /etc/telemetron/token`.
+// For the standalone `telemetron setup` path (no install.sh), presence
+// of TELEMETRON_TOKEN_SECRET without --token-file or an existing token
+// file is an operator error we must hard-fail on — NOT silently
+// fall through to anonymous auto-enroll. See review blocker #2
+// (2026-05-03).
+func tokenSecretIDSet() bool {
+	return strings.TrimSpace(os.Getenv("TELEMETRON_TOKEN_SECRET")) != ""
 }
 
 func autoEnrollDisabled() bool {
@@ -45,6 +58,16 @@ func autoEnrollDisabled() bool {
 func shouldAttemptAutoEnroll(r resolvedSetup) bool {
 	return !explicitTokenSourceConfigured(r) && !existingTokenFilePresent()
 }
+
+// ErrTokenSecretNotResolved is returned when TELEMETRON_TOKEN_SECRET is
+// set but no token has been staged for setup to consume. Auto-enroll is
+// deliberately not attempted in this case — the operator asked for a
+// managed token and must get that path or a clean failure, never a
+// silent swap to anonymous enrollment.
+var ErrTokenSecretNotResolved = errors.New(
+	"TELEMETRON_TOKEN_SECRET is set but no token was staged; " +
+		"run via install.sh (which fetches the secret) or pass --token-file explicitly",
+)
 
 func loadTokenOrEnroll(ctx context.Context, r resolvedSetup, cfg config.Config) (string, string, error) {
 	if r.tokenFile != "" {
@@ -63,6 +86,11 @@ func loadTokenOrEnroll(ctx context.Context, r resolvedSetup, cfg config.Config) 
 			return "", "", err
 		}
 		return strings.TrimSpace(string(data)), "existing", nil
+	}
+	// TELEMETRON_TOKEN_SECRET is set but nothing was staged for us.
+	// Hard-fail rather than auto-enroll (review blocker #2, 2026-05-03).
+	if tokenSecretIDSet() {
+		return "", "", ErrTokenSecretNotResolved
 	}
 	if autoEnrollDisabled() {
 		return "", "", errors.New("auto-enroll disabled")

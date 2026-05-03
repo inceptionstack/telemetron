@@ -18,6 +18,12 @@ Normal OTLP metric flushes send:
 
 - the existing OTLP metric payload produced by `telemetron`
 - `install_id` as an OTLP resource attribute
+- `deployment_id` as an OTLP resource attribute (operator-configured identity of the deployment)
+- `tier` as an OTLP resource attribute (operator-configured environment class: dev/staging/prod)
+- `environment` as an OTLP resource attribute (operator-configured environment name)
+- `pack_version` as an OTLP resource attribute (version of the pack being observed)
+
+`deployment_id`, `tier`, `environment`, and `pack_version` come from the operator's config, not from the host. They never contain hostnames, usernames, or paths.
 
 ## What we never send
 
