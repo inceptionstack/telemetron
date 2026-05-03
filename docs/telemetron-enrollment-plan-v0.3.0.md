@@ -1,9 +1,9 @@
 # telemetron auto-enrollment plan (v0.3.0) — REVISED
 
-Status: **proposal v2 — pending Codex review**
+Status: **proposal v3 — pending final Codex review**
 Author: Loki@FastStart
 Date: 2026-05-03
-Supersedes: v1 of this doc (was overengineered; Codex + Roy critique led to this rewrite)
+Supersedes: v2 (v2 architecture accepted; v3 fixes 4 Codex findings: idempotency, token↔install_id binding, DDB key design, token format contract)
 
 ## Problem
 
@@ -33,10 +33,13 @@ v1 of this plan proposed rebuilding all of this inside telemetron. It shouldn't.
 | 2 | New Lambda (`lambda-enroll`) parallel to `lambda-install` / `lambda-ingest`, same repo (`loki-dashboard/infra/loki-telemetry`) | Keep handler semantics clean. Codex: "do not overload lambda-install." |
 | 3 | Client sends `install_id` as OTel resource attribute on every flush | Roy: "It's anonymous. It's just a number. That gives us the correlation." Codex preferred server-side enrichment; we accept the simpler client-side approach because install_id carries no identity. |
 | 4 | `install_id` primary join key; `machine_id` secondary | Codex: `machine_id` can drift when hostname changes; install_id is the stable identity. |
-| 5 | No token renewal / revocation / admin tool in v0.3.0 | Happy path only. Rotation & revocation = v0.3.1. |
+| 5 | **Operator-only revocation in v0.3.0** (DDB `revoked=true` flag, authorizer rejects). No user-facing CLI. Rotation = v0.3.1. | Codex: revocation must exist from day one; user-facing tool can wait. |
 | 6 | No anomaly-scoring Lambda in v0.3.0 | Existing WAF + per-install rate limit is enough for launch. |
 | 7 | Token prefix `lpk_enroll_*` (distinct from `lpk_live_*`) | Easy to differentiate in dashboards and authorizer. |
 | 8 | When lowkey is installed, lowkey passes *its* existing `install_id` to `/v1/enroll`. Telemetron standalone generates its own UUIDv4. | No duplication. One identity per install regardless of origin. |
+| 9 | **Token = `lpk_enroll_` + lowercase hex of 32 random bytes (64 hex chars)**. Matches existing `lpk_[a-z]+_[0-9a-f]+` scanner regex exactly. | Keeps git-secrets / CI patterns uniform with `lpk_live_*`. No base58 — Codex flagged the format drift. |
+| 10 | **Ingest binds token → enrolled install_id server-side** — ingest Lambda looks up token's enrolled `install_id` and overwrites any client-supplied value before warehousing | Codex: client-supplied `install_id` in OTLP can poison joins without this bind. Non-negotiable. |
+| 11 | **DDB table has primary key `token_hash` + GSI `install_id-index`** | Authorizer looks up by token_hash; enroll idempotency check looks up by install_id. Both paths are O(1). |
 
 ## Client flow
 
@@ -99,22 +102,39 @@ That's the only wire change. The bearer still authenticates; install_id is a cor
   ```
 - **Validation:** reuse `_shared/validate.py` regex primitives (`UUID_RE`, `MACHINE_ID_RE`, `ALLOWED_OS`, `ALLOWED_ARCH`)
 - **Action:**
-  1. Generate 32-byte random token → base58 → prefix `lpk_enroll_`
-  2. DDB `PutItem` in new table `telemetron-enrollments`:
+  1. **Idempotency check:** `Query GSI install_id-index WHERE install_id = :req`.
+     - No row → proceed to mint (first enrollment)
+     - Row exists with matching `machine_id` → return existing row's token (idempotent retry). Does **not** re-mint. Required so a client that times out after mint but before receiving the response can safely retry.
+     - Row exists with different `machine_id` → **return `409 Conflict`, no mutation.** Client-supplied `install_id` must not be an account-takeover primitive. Codex-required.
+  2. Mint token: `lpk_enroll_` + lowercase hex of 32 random bytes (`crypto/rand`). 64 hex chars total (11 prefix + 64 hex = 75 chars). Regex: `lpk_enroll_[0-9a-f]{64}`.
+  3. DDB `PutItem` in new table `telemetron-enrollments`:
      ```
-     PK = install_id
-     token_hash = sha256(token)   # for authorizer lookups
-     machine_id, os, arch, source, created_at
+     PK        = token_hash   (sha256 of the token, lowercase hex, 64 chars)
+     GSI1 PK   = install_id   (name: install_id-index, projection: ALL)
+     attrs     = machine_id, os, arch, source, telemetron_version, created_at,
+                 revoked (bool, default false), revoked_at (nullable)
      ```
-  3. Return `{"token": "lpk_enroll_...", "install_id": "<echoed>"}`
+  4. Return `{"token": "lpk_enroll_...", "install_id": "<echoed>"}`
 - **Rate limit:** reuse existing WAF rule pattern from `/v1/install` (per-IP 100/hour; global 5k/hour alarm)
-- **Idempotency:** if the same `install_id` enrolls twice with a matching `machine_id`, return the existing token (no churn). Different `machine_id` → treat as a new install, mint a new token, overwrite.
+- **Retry safety:** because idempotency returns the existing token on exact match, a client that times out after server mint but before receiving the HTTP response can retry with the same `install_id` + `machine_id` and get the same token back. No orphaned rows, no duplicate tokens.
 
 ### Existing: `POST /v1/metrics` (telemetron's endpoint)
 
-**One change:** authorizer accepts both `lpk_live_*` (existing) and `lpk_enroll_*` (new). For `lpk_enroll_*`, authorizer does a DDB GetItem on `token_hash` to validate the token is an active row. That's the only added logic; no payload rewriting, no enrichment.
+**Authorizer changes:**
+- Accepts both `lpk_live_*` (existing, regex match, no DDB lookup)
+- And `lpk_enroll_*` (new) — on match, `GetItem(PK=sha256(token))`. Accepts only if row exists **AND** `revoked == false`. 401 otherwise.
+- On accept, the authorizer passes `enrolled_install_id` (from DDB row) to the ingest Lambda via a signed request context attribute.
 
-**No AMP propagation of install_id for v0.3.0:** the ingest Lambda forwards resource attrs to the warehouse (S3/Athena) but strips `install_id` from any AMP mirror. Codex's #6 privacy concern addressed with one `attrs.pop("install_id", None)` before the AMP PutRecords.
+**Ingest Lambda changes (Codex-required):**
+1. Strip any client-supplied `install_id` from the incoming OTLP resource attrs.
+2. Replace with the authoritative `enrolled_install_id` from the authorizer context. This is the server-side binding that prevents join poisoning.
+3. Promote `install_id` from the resource-attrs map to an explicit top-level column on the Firehose record (for clean Athena joins).
+4. Before any AMP mirror: `attrs.pop("install_id", None)` — no durable per-install label in Prometheus plane.
+
+**Revocation path (operator-only, v0.3.0):**
+- Ops runs: `aws dynamodb update-item --table telemetron-enrollments --key '{"token_hash":{"S":"..."}}' --update-expression 'SET revoked = :t, revoked_at = :n' --expression-attribute-values '{":t":{"BOOL":true},":n":{"S":"<iso8601>"}}'`
+- Next flush from that install returns 401.
+- No user-facing CLI in v0.3.0 (Codex explicitly said this is acceptable). CLI wrapper = v0.3.1.
 
 ### Dashboard
 
@@ -131,10 +151,14 @@ For this to work cleanly, ingest promotes `install_id` from the OTel resource-at
 ## Privacy
 
 **Sent at enroll time:** install_id, machine_id (salted hash), os, arch, telemetron_version, source.
-**Sent at flush time:** existing OTLP metrics + install_id as a resource attribute.
+**Sent at flush time:** existing OTLP metrics + install_id as a resource attribute (which the server will overwrite with the authoritative bound value — client's copy is a join hint only, never trusted).
 **Never sent:** hostname, username, home paths, MAC, kernel version, session content.
 
 **Opt-out:** `TELEMETRON_NO_AUTO_ENROLL=1` → no enroll call, no metrics (setup exits cleanly, telemetron service never starts).
+
+**File permissions:**
+- `/etc/telemetron/token` → `0400` (bearer, secret)
+- `/etc/telemetron/install-id` → `0644` (anonymous UUID, intentionally world-readable so non-root support scripts / `telemetron whoami` / troubleshooting ticket helpers can cite it without sudo). Documented in `docs/privacy.md`.
 
 A `docs/privacy.md` ships in the same PR listing every attribute sent, retention, and opt-out.
 
@@ -149,17 +173,19 @@ A `docs/privacy.md` ships in the same PR listing every attribute sent, retention
 
 | # | Task | Area | Effort |
 |---|------|------|--------|
-| 1 | DDB table `telemetron-enrollments` (CDK) | Infra | XS (30m) |
-| 2 | `lambda-enroll/handler.py` + route wiring + WAF reuse | Backend | S (2h) |
-| 3 | Authorizer: accept `lpk_enroll_*` via DDB GetItem | Backend | S (1.5h) |
-| 4 | Ingest: promote `install_id` to top-level col; strip from AMP mirror | Backend | S (1h) |
-| 5 | Telemetron: enroll client (Go, in `internal/enroll/`) + setup integration | Client | M (3h) |
-| 6 | Telemetron: exporter adds `install_id` resource attr | Client | XS (30m) |
-| 7 | Lowkey `install.sh`: call `/v1/enroll` after `/v1/install`, write `/etc/telemetron/{token,install-id}` | Client | S (1h) |
-| 8 | `docs/privacy.md`, CHANGELOG, README opt-out | Docs | S (1h) |
-| 9 | E2E: fresh box → `curl lowkey install.sh \| sh` → verify telemetron flushes with install_id → Athena join returns a row | Test | S (2h) |
+| 1 | DDB table `telemetron-enrollments` + GSI `install_id-index` (CDK) | Infra | XS (45m) |
+| 2 | `lambda-enroll/handler.py`: idempotent enroll, 409 on machine_id mismatch, WAF reuse | Backend | M (3h) |
+| 3 | Authorizer: accept `lpk_enroll_*` via DDB GetItem by token_hash + check `revoked` flag | Backend | S (2h) |
+| 4 | Ingest: strip client install_id, inject bound install_id from authorizer ctx, promote to top-level col, strip from AMP mirror | Backend | S (2h) |
+| 5 | Shared spec + frozen test vectors for `machine_id` algorithm (so lowkey + telemetron cannot drift) | Backend/Client | XS (45m) |
+| 6 | Telemetron: enroll client (Go, in `internal/enroll/`) + setup integration + retry-on-timeout idempotent semantics | Client | M (3h) |
+| 7 | Telemetron: exporter adds `install_id` resource attr | Client | XS (30m) |
+| 8 | Lowkey `install.sh`: call `/v1/enroll` after `/v1/install`, write `/etc/telemetron/{token,install-id}` | Client | S (1h) |
+| 9 | Update `git-secrets` patterns: add `lpk_enroll_[0-9a-f]{64}` alongside `lpk_live_[0-9a-f]{32}` | Ops | XS (15m) |
+| 10 | `docs/privacy.md`, CHANGELOG, README opt-out, operator revocation runbook | Docs | S (1.5h) |
+| 11 | E2E: fresh box → `curl lowkey install.sh \| sh` → verify telemetron flushes with bound install_id → Athena join returns a row → operator revoke → next flush 401 | Test | S (2.5h) |
 
-**Total: ~12.5 hours ≈ 1.5 days.** (Down from v1's ~29h estimate.)
+**Total: ~17 hours ≈ 2 days.** (Up slightly from v2's 12.5h because of binding + revocation + 409 work, but still well under v1's 29h.)
 
 ## Deferred (v0.3.1+)
 
@@ -171,15 +197,24 @@ A `docs/privacy.md` ships in the same PR listing every attribute sent, retention
 - UUIDv4 → UUIDv7 migration (time-sortable)
 - Signature-based auth (v0.4+)
 
-## Open questions for Codex
+## Changes since v2 (Codex-driven)
 
-1. **Is the simplification aggressive enough?** The v1 plan had 12 tasks and ~29h. v2 has 9 tasks and ~12.5h. Am I over-cutting (e.g., no revocation at launch means a single abuse install can't be killed until we deploy a revoke tool)?
-2. **Idempotency semantics of `/v1/enroll`:** same `install_id` + same `machine_id` → return existing token. Same `install_id` + different `machine_id` → mint new and overwrite. Is that the right policy, or should mismatched `machine_id` be a 409 Conflict?
-3. **Client-side install_id injection:** I'm overriding your #2 recommendation in favor of Roy's #1 because install_id is anonymous. Agree that the AMP-strip in the ingest Lambda is sufficient mitigation for the "durable per-install label in metrics plane" concern?
-4. **Token prefix `lpk_enroll_*` vs `lpk_live_*`:** you didn't flag this as a problem last round. Still fine?
-5. **`machine_id` reuse across products:** lowkey already hashes it as `sha256(/etc/machine-id + ':' + hostname)`. Is there a risk in telemetron independently recomputing the same thing in the standalone path? (My read: no — the hash is the id; whoever computes it gets the same result.)
-6. **Authorizer cold path:** every `/v1/metrics` for an `lpk_enroll_*` token now does a DDB GetItem. For `lpk_live_*` it still does the static pattern check. Is the bifurcation OK, or should both paths go through DDB for consistency?
-7. **No renewal at launch:** tokens minted in v0.3.0 live forever until we ship renewal in v0.3.1. Is that an unacceptable debt, or fine for the first release?
-8. **Anything material we're still missing?**
+| Codex finding | Fix in v3 |
+|---|---|
+| Overwrite on mismatched `machine_id` is a takeover primitive | Now `409 Conflict`, no mutation |
+| Client-supplied `install_id` poisons joins unless server rebinds | Ingest Lambda strips client value, injects authoritative bound value from authorizer context |
+| Token format drifts from existing `lpk_[a-z]+_[0-9a-f]+` scanner regex | Tokens = `lpk_enroll_` + 64 hex chars (no base58). Scanner pattern added explicitly |
+| DDB key/index design wrong — authorizer wants `token_hash` lookup but PK was `install_id` | PK = `token_hash`, GSI `install_id-index` for enroll idempotency |
+| Revocation needs to exist from day one even without a user CLI | `revoked` boolean in DDB + authorizer check + operator runbook |
+| Retry-after-mint semantics not spelled out | Idempotent re-enroll returns same token on exact match |
+| `machine_id` algorithm drift risk between lowkey and telemetron | Shared spec + frozen test vectors (Task #5) |
+| `/etc/telemetron/install-id` permissions unclear | `0644` with rationale in privacy.md |
 
-Please be direct. If the v2 plan is still wrong or still overbuilt, say so concretely.
+## Open questions for Codex (final round)
+
+1. Does v3 correctly close all four must-fix findings from your v2 review (idempotency, token-install binding, DDB key design, token format contract)?
+2. Is the `revoked` flag + operator runbook sufficient as a day-one revocation mechanism, or do you want a dedicated admin Lambda behind IAM auth in v0.3.0?
+3. Token format `lpk_enroll_[0-9a-f]{64}` (32 random bytes hex-encoded) — strong enough for a long-lived token, or do you want more entropy?
+4. Anything still missing or still wrong?
+
+If v3 is acceptable, say so explicitly and I'll hand it to Codex for implementation on branch `v0.3.0-enrollment-plan`.
