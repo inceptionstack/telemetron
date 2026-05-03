@@ -12,7 +12,9 @@ import (
 )
 
 func TestDeclaredForExporterIncludesInstallIDWhenPresent(t *testing.T) {
-	t.Parallel()
+	// NOT t.Parallel(): mutates package-global readInstallID and
+	// setupInstallIDPath. TestDeclaredForExporterSkipsMissingInstallID
+	// touches the same globals; running them in parallel is a race.
 
 	prevReadInstallID := readInstallID
 	prevInstallIDPath := setupInstallIDPath
@@ -43,7 +45,7 @@ func TestDeclaredForExporterIncludesInstallIDWhenPresent(t *testing.T) {
 }
 
 func TestDeclaredForExporterSkipsMissingInstallID(t *testing.T) {
-	t.Parallel()
+	// NOT t.Parallel(): see note on sibling test.
 
 	prevReadInstallID := readInstallID
 	prevInstallIDPath := setupInstallIDPath

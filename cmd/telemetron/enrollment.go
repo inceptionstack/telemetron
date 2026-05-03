@@ -81,7 +81,12 @@ func loadTokenOrEnroll(ctx context.Context, r resolvedSetup, cfg config.Config) 
 		return strings.TrimSpace(r.tokenFromEnv), "env", nil
 	}
 	if existingTokenFilePresent() {
-		data, err := os.ReadFile(cfg.TokenFile)
+		// Read from the same path existingTokenFilePresent() just
+		// confirmed. Reading from cfg.TokenFile instead is a bug when
+		// the operator has moved the token out of the default location
+		// (and trips every e2e test that scopes setupTokenPath to a
+		// tempdir).
+		data, err := os.ReadFile(setupTokenPath)
 		if err != nil {
 			return "", "", err
 		}

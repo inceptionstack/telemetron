@@ -4,6 +4,7 @@ package machineid
 
 import (
 	"regexp"
+	"runtime"
 	"testing"
 )
 
@@ -48,6 +49,15 @@ func TestComputeFromFrozenVectors(t *testing.T) {
 }
 
 func TestComputeReturnsStableHashedMachineIDOnHost(t *testing.T) {
+	// Skip on platforms that don't ship a machine-id file by default.
+	// macOS runners in GitHub Actions don't have /etc/machine-id or
+	// /var/db/dbus/machine-id, so Compute() will always error. The
+	// frozen test vectors above already cover the pure-function path.
+	if runtime.GOOS == "darwin" {
+		if _, err := Compute(); err != nil {
+			t.Skipf("no machine-id file on this host: %v", err)
+		}
+	}
 	first, err := Compute()
 	if err != nil {
 		t.Fatal(err)

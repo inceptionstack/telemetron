@@ -642,29 +642,6 @@ func (s *capturingSetupService) Uninstall() error                     { return n
 func (s *capturingSetupService) EnableAndStart() error                { return nil }
 func (s *capturingSetupService) ProbeStatus() (service.Status, error) { return service.Status{}, nil }
 
-type writingSetupService struct{}
-
-func (writingSetupService) Install(config.Config, string) error { return nil }
-func (writingSetupService) InstallAs(cfg config.Config, token, _ string) error {
-	data, err := cfg.Marshal()
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(cfg.FilePath), 0o755); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(cfg.TokenFile), 0o755); err != nil {
-		return err
-	}
-	if err := os.WriteFile(cfg.FilePath, data, 0o644); err != nil {
-		return err
-	}
-	return os.WriteFile(cfg.TokenFile, []byte(token), 0o400)
-}
-func (writingSetupService) Uninstall() error                     { return nil }
-func (writingSetupService) EnableAndStart() error                { return nil }
-func (writingSetupService) ProbeStatus() (service.Status, error) { return service.Status{}, nil }
-
 // tempdirWritingSetupService persists the token to a caller-supplied
 // path rather than cfg.TokenFile. Used by tests that want to verify the
 // enrollment → install → token-on-disk flow without pre-seeding config.
