@@ -1,9 +1,9 @@
 # telemetron auto-enrollment plan (v0.3.0) — REVISED
 
-Status: **proposal v3 — pending final Codex review**
+Status: **proposal v4 — pending final Codex review**
 Author: Loki@FastStart
 Date: 2026-05-03
-Supersedes: v2 (v2 architecture accepted; v3 fixes 4 Codex findings: idempotency, token↔install_id binding, DDB key design, token format contract)
+Supersedes: v3 (v3 had concurrent first-enroll race: Query+PutItem on separate keys isn't atomic; v4 flips key design to fix it)
 
 ## Problem
 
@@ -31,7 +31,7 @@ v1 of this plan proposed rebuilding all of this inside telemetron. It shouldn't.
 |---|----------|-----|
 | 1 | New route `POST /v1/enroll` on the same API Gateway as `/v1/install` and `/v1/ingest` | Reuse infra, schema, rate-limit, Firehose. Codex: "this is the correct option." |
 | 2 | New Lambda (`lambda-enroll`) parallel to `lambda-install` / `lambda-ingest`, same repo (`loki-dashboard/infra/loki-telemetry`) | Keep handler semantics clean. Codex: "do not overload lambda-install." |
-| 3 | Client sends `install_id` as OTel resource attribute on every flush | Roy: "It's anonymous. It's just a number. That gives us the correlation." Codex preferred server-side enrichment; we accept the simpler client-side approach because install_id carries no identity. |
+| 3 | Client sends `install_id` as OTel resource attribute on every flush, but the server **overwrites it** with the authoritative value from the DDB-bound token before warehousing | Roy: "It's anonymous, just a number — gives us the correlation." Server-side rebinding (decision #10) means the client value is a hint only, never trusted. ConditionExpression atomic write guarantees uniqueness at enroll time. |
 | 4 | `install_id` primary join key; `machine_id` secondary | Codex: `machine_id` can drift when hostname changes; install_id is the stable identity. |
 | 5 | **Operator-only revocation in v0.3.0** (DDB `revoked=true` flag, authorizer rejects). No user-facing CLI. Rotation = v0.3.1. | Codex: revocation must exist from day one; user-facing tool can wait. |
 | 6 | No anomaly-scoring Lambda in v0.3.0 | Existing WAF + per-install rate limit is enough for launch. |
@@ -39,7 +39,7 @@ v1 of this plan proposed rebuilding all of this inside telemetron. It shouldn't.
 | 8 | When lowkey is installed, lowkey passes *its* existing `install_id` to `/v1/enroll`. Telemetron standalone generates its own UUIDv4. | No duplication. One identity per install regardless of origin. |
 | 9 | **Token = `lpk_enroll_` + lowercase hex of 32 random bytes (64 hex chars)**. Matches existing `lpk_[a-z]+_[0-9a-f]+` scanner regex exactly. | Keeps git-secrets / CI patterns uniform with `lpk_live_*`. No base58 — Codex flagged the format drift. |
 | 10 | **Ingest binds token → enrolled install_id server-side** — ingest Lambda looks up token's enrolled `install_id` and overwrites any client-supplied value before warehousing | Codex: client-supplied `install_id` in OTLP can poison joins without this bind. Non-negotiable. |
-| 11 | **DDB table has primary key `token_hash` + GSI `install_id-index`** | Authorizer looks up by token_hash; enroll idempotency check looks up by install_id. Both paths are O(1). |
+| 11 | **DDB table has primary key `install_id` + GSI `token_hash-index`** | Enroll writes with `ConditionExpression=attribute_not_exists(install_id)` → atomic first-writer wins, eliminates concurrent-enroll race. Authorizer looks up by `token_hash` via GSI. Both paths O(1). |
 
 ## Client flow
 
@@ -102,28 +102,29 @@ That's the only wire change. The bearer still authenticates; install_id is a cor
   ```
 - **Validation:** reuse `_shared/validate.py` regex primitives (`UUID_RE`, `MACHINE_ID_RE`, `ALLOWED_OS`, `ALLOWED_ARCH`)
 - **Action:**
-  1. **Idempotency check:** `Query GSI install_id-index WHERE install_id = :req`.
-     - No row → proceed to mint (first enrollment)
-     - Row exists with matching `machine_id` → return existing row's token (idempotent retry). Does **not** re-mint. Required so a client that times out after mint but before receiving the response can safely retry.
-     - Row exists with different `machine_id` → **return `409 Conflict`, no mutation.** Client-supplied `install_id` must not be an account-takeover primitive. Codex-required.
-  2. Mint token: `lpk_enroll_` + lowercase hex of 32 random bytes (`crypto/rand`). 64 hex chars total (11 prefix + 64 hex = 75 chars). Regex: `lpk_enroll_[0-9a-f]{64}`.
-  3. DDB `PutItem` in new table `telemetron-enrollments`:
+  1. Mint token first: `lpk_enroll_` + lowercase hex of 32 random bytes (`crypto/rand`). 64 hex chars. Regex: `lpk_enroll_[0-9a-f]{64}`.
+  2. Attempt DDB `PutItem` with `ConditionExpression=attribute_not_exists(install_id)`:
      ```
-     PK        = token_hash   (sha256 of the token, lowercase hex, 64 chars)
-     GSI1 PK   = install_id   (name: install_id-index, projection: ALL)
+     PK        = install_id   (base-table PK; atomic uniqueness enforced here)
+     token_hash = sha256(token)  (lowercase hex, 64 chars)
+     GSI1 PK   = token_hash   (name: token-hash-index, projection: ALL)
      attrs     = machine_id, os, arch, source, telemetron_version, created_at,
                  revoked (bool, default false), revoked_at (nullable)
      ```
-  4. Return `{"token": "lpk_enroll_...", "install_id": "<echoed>"}`
+  3. Outcomes:
+     - **`PutItem` succeeds** (no prior row) → return `{"token": "lpk_enroll_...", "install_id": "<echoed>"}`. First-writer wins atomically. No race between two concurrent first-enrolls.
+     - **`ConditionalCheckFailedException`** (row exists) → `GetItem(PK=install_id)` to read existing row.
+       - Existing `machine_id` matches → return existing token (idempotent retry, client timed out and retried).
+       - Existing `machine_id` differs → **`409 Conflict`, no mutation.** Takeover attempt blocked.
 - **Rate limit:** reuse existing WAF rule pattern from `/v1/install` (per-IP 100/hour; global 5k/hour alarm)
-- **Retry safety:** because idempotency returns the existing token on exact match, a client that times out after server mint but before receiving the HTTP response can retry with the same `install_id` + `machine_id` and get the same token back. No orphaned rows, no duplicate tokens.
+- **Retry safety:** concurrent or retried first-enrolls for the same `install_id` are serialised by the DDB conditional write. Only one token is ever minted per `install_id`.
 
 ### Existing: `POST /v1/metrics` (telemetron's endpoint)
 
 **Authorizer changes:**
 - Accepts both `lpk_live_*` (existing, regex match, no DDB lookup)
-- And `lpk_enroll_*` (new) — on match, `GetItem(PK=sha256(token))`. Accepts only if row exists **AND** `revoked == false`. 401 otherwise.
-- On accept, the authorizer passes `enrolled_install_id` (from DDB row) to the ingest Lambda via a signed request context attribute.
+- And `lpk_enroll_*` (new) — on match, `Query GSI token-hash-index WHERE token_hash = sha256(bearer)`. Accepts only if exactly one row exists **AND** `revoked == false`. 401 otherwise.
+- On accept, the authorizer passes `enrolled_install_id` (from the GSI result's `install_id` attribute) to the ingest Lambda via a signed request context attribute.
 
 **Ingest Lambda changes (Codex-required):**
 1. Strip any client-supplied `install_id` from the incoming OTLP resource attrs.
@@ -199,22 +200,30 @@ A `docs/privacy.md` ships in the same PR listing every attribute sent, retention
 
 ## Changes since v2 (Codex-driven)
 
-| Codex finding | Fix in v3 |
+## Changes since v3 (Codex v3 review)
+
+| Codex finding | Fix in v4 |
 |---|---|
-| Overwrite on mismatched `machine_id` is a takeover primitive | Now `409 Conflict`, no mutation |
-| Client-supplied `install_id` poisons joins unless server rebinds | Ingest Lambda strips client value, injects authoritative bound value from authorizer context |
-| Token format drifts from existing `lpk_[a-z]+_[0-9a-f]+` scanner regex | Tokens = `lpk_enroll_` + 64 hex chars (no base58). Scanner pattern added explicitly |
-| DDB key/index design wrong — authorizer wants `token_hash` lookup but PK was `install_id` | PK = `token_hash`, GSI `install_id-index` for enroll idempotency |
-| Revocation needs to exist from day one even without a user CLI | `revoked` boolean in DDB + authorizer check + operator runbook |
-| Retry-after-mint semantics not spelled out | Idempotent re-enroll returns same token on exact match |
-| `machine_id` algorithm drift risk between lowkey and telemetron | Shared spec + frozen test vectors (Task #5) |
+| Concurrent first-enroll race: Query+PutItem on separate keys isn't atomic → two writes could both succeed | Flipped key design: base-table PK = `install_id`, GSI PK = `token_hash`. Write uses `ConditionExpression=attribute_not_exists(install_id)` → DDB serialises concurrent first-enrolls atomically |
+| Stale wording in decision #3 conflicted with server-side rebinding in decision #10 | Decision #3 updated to state client value is a hint only, server overwrites |
+
+## Changes since v2 (Codex v2 review)
+
+| Codex finding | Fix in v3/v4 |
+|---|---|
+| Overwrite on mismatched `machine_id` is a takeover primitive | `409 Conflict`, no mutation |
+| Client-supplied `install_id` poisons joins unless server rebinds | Ingest strips client value, injects authoritative bound value from authorizer context |
+| Token format drifts from scanner regex | `lpk_enroll_[0-9a-f]{64}` (no base58). Scanner pattern added explicitly |
+| DDB key/index design ambiguous | Base-table PK = `install_id`, GSI `token-hash-index`. Atomic write + O(1) authorizer lookup |
+| Revocation needed from day one | `revoked` boolean + operator runbook |
+| Retry-after-mint not specified | Exact-match `ConditionalCheckFailedException` → return existing token |
+| `machine_id` algorithm drift risk | Shared spec + frozen test vectors (Task #5) |
 | `/etc/telemetron/install-id` permissions unclear | `0644` with rationale in privacy.md |
 
-## Open questions for Codex (final round)
+## Open questions for Codex (v4 — final round)
 
-1. Does v3 correctly close all four must-fix findings from your v2 review (idempotency, token-install binding, DDB key design, token format contract)?
-2. Is the `revoked` flag + operator runbook sufficient as a day-one revocation mechanism, or do you want a dedicated admin Lambda behind IAM auth in v0.3.0?
-3. Token format `lpk_enroll_[0-9a-f]{64}` (32 random bytes hex-encoded) — strong enough for a long-lived token, or do you want more entropy?
-4. Anything still missing or still wrong?
+1. Does the `ConditionExpression=attribute_not_exists(install_id)` PutItem with `ConditionalCheckFailedException` fallback correctly close the concurrent-enroll race blocker from your v3 review?
+2. With base-table PK = `install_id` and GSI `token-hash-index`, revocation by token requires a `QueryGSI → UpdateItem(PK=install_id)` two-step. Is that acceptable for the operator runbook, or do we need `token_hash` as a second base-table sort key?
+3. Anything else still wrong?
 
-If v3 is acceptable, say so explicitly and I'll hand it to Codex for implementation on branch `v0.3.0-enrollment-plan`.
+If v4 is acceptable, say so explicitly and I'll hand it to Codex for implementation.
