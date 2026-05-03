@@ -21,6 +21,7 @@ const (
 	EventServiceInstalled  = "service.installed"
 	EventServiceStarted    = "service.started"
 	EventHealthcheckPassed = "healthcheck.passed"
+	EventUnchanged         = "unchanged"
 	EventSetupCompleted    = "setup.completed"
 	EventSetupFailed       = "setup.failed"
 )

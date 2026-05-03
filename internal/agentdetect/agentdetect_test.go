@@ -108,6 +108,45 @@ func TestDetectOpenClaw(t *testing.T) {
 	})
 }
 
+func TestFindOpenClawMainCandidates(t *testing.T) {
+	t.Run("linux homes and root are discovered", func(t *testing.T) {
+		tmp := t.TempDir()
+		mustMkdir(t, filepath.Join(tmp, "home", "alice", ".openclaw", "agents", "main", "sessions"))
+		mustMkdir(t, filepath.Join(tmp, "root", ".openclaw", "agents", "main", "sessions"))
+		mustMkdir(t, filepath.Join(tmp, "home", "bob", ".openclaw", "agents", "other", "sessions"))
+
+		candidates, err := FindOpenClawMainCandidates("linux", tmp)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(candidates) != 2 {
+			t.Fatalf("want 2 candidates, got %d", len(candidates))
+		}
+		if candidates[0].RunAsUser != "alice" || candidates[0].SessionDir != "/home/alice/.openclaw/agents/main/sessions" {
+			t.Fatalf("unexpected first candidate: %+v", candidates[0])
+		}
+		if candidates[1].RunAsUser != "root" || candidates[1].SessionDir != "/root/.openclaw/agents/main/sessions" {
+			t.Fatalf("unexpected second candidate: %+v", candidates[1])
+		}
+	})
+
+	t.Run("darwin users are discovered", func(t *testing.T) {
+		tmp := t.TempDir()
+		mustMkdir(t, filepath.Join(tmp, "Users", "roy", ".openclaw", "agents", "main", "sessions"))
+
+		candidates, err := FindOpenClawMainCandidates("darwin", tmp)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(candidates) != 1 {
+			t.Fatalf("want 1 candidate, got %d", len(candidates))
+		}
+		if candidates[0].RunAsUser != "roy" {
+			t.Fatalf("want run-as roy, got %+v", candidates[0])
+		}
+	})
+}
+
 func mustMkdir(t *testing.T, path string) {
 	t.Helper()
 	if err := os.MkdirAll(path, 0o755); err != nil {

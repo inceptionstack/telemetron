@@ -61,6 +61,15 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 - Split daemon management into a build-tagged `internal/service` layer, added Linux install ownership fixes, and improved status, version, and install CLI behavior.
 - Hardened config, collector, OTLP sink, registry, and service test coverage while removing duplicated file-write and JSON helper logic.
 
+### Fixed
+
+- `telemetron setup` now fails fast under UID 0 with no `$SUDO_USER` when it cannot resolve a unique OpenClaw `session_dir` / `run_as`, and it persists both values for deterministic reruns.
+- Health verification now defaults to `60s`, accepts `--health-timeout` / `TELEMETRON_HEALTH_TIMEOUT`, and includes the last HTTP status/body snippet in timeout errors.
+- `setup` now rejects unsupported auto-setup targets early: macOS remains unsupported, and non-systemd Linux exits with an explicit precondition error instead of falling through to a vague `systemctl` failure.
+- Re-running `setup` with unchanged config + token now short-circuits as `action_taken: unchanged` without bouncing the service.
+- `install.sh` now tolerates unset `HOME`, documents `TELEMETRON_TOKEN_SECRET`, exposes `--help`, and forwards the secret id into the setup summary when auto-setup staged the token from AWS Secrets Manager.
+- Text-mode `setup` output now shows explicit phase progress and suppresses Cobra usage spam on runtime failures.
+
 ## [0.1.0]
 
 ### Added

@@ -85,7 +85,7 @@ func (e *Exporter) Export(ctx context.Context, points []Point) (Response, error)
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	return Response{
 		StatusCode: resp.StatusCode,
-		Body:       string(body),
+		Body:       summarizeResponseBody(string(body)),
 		Bytes:      len(payload),
 	}, nil
 }
@@ -145,4 +145,12 @@ func (e *Exporter) Marshal(points []Point) ([]byte, error) {
 		return nil, fmt.Errorf("marshal otlp payload: %w", err)
 	}
 	return data, nil
+}
+
+func summarizeResponseBody(body string) string {
+	body = strings.TrimSpace(body)
+	if len(body) <= 200 {
+		return body
+	}
+	return body[:200]
 }

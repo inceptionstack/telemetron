@@ -38,6 +38,7 @@ func TestSinkAuthFailure(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte("forbidden_token_invalid"))
 	}))
 	defer server.Close()
 
@@ -49,6 +50,11 @@ func TestSinkAuthFailure(t *testing.T) {
 	require.True(t, result.AuthFailure)
 	require.True(t, result.Dropped)
 	require.Equal(t, 1, result.DroppedTotal)
+
+	snap, readErr := sink.status.Read()
+	require.NoError(t, readErr)
+	require.Equal(t, http.StatusUnauthorized, snap.LastHTTPStatus)
+	require.Equal(t, "forbidden_token_invalid", snap.LastHTTPBody)
 }
 
 func TestSinkServerFailure(t *testing.T) {

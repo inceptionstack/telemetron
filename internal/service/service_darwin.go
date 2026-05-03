@@ -12,6 +12,10 @@ func newService() Service {
 	return darwinService{}
 }
 
+func SetupPrecondition() error {
+	return ErrUnsupported
+}
+
 func (darwinService) Install(config.Config, string) error {
 	return ErrUnsupported
 }

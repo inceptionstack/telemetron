@@ -22,6 +22,7 @@ type Config struct {
 	TokenFile        string         `mapstructure:"token_file" yaml:"token_file"`
 	LogLevel         string         `mapstructure:"log_level" yaml:"log_level"`
 	InsecureEndpoint bool           `mapstructure:"insecure_endpoint" yaml:"insecure_endpoint,omitempty"`
+	RunAs            string         `mapstructure:"run_as" yaml:"run_as,omitempty"`
 	Declared         DeclaredConfig `mapstructure:"declared" yaml:"declared,omitempty"`
 	Collectors       map[string]any `mapstructure:",remain" yaml:",inline,omitempty"`
 

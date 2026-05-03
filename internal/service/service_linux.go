@@ -24,6 +24,23 @@ const (
 	configDir  = "/etc/telemetron"
 )
 
+var (
+	systemdStat      = os.Stat
+	systemdLookPath  = exec.LookPath
+	systemdRunOutput = func(name string, args ...string) ([]byte, error) {
+		return exec.Command(name, args...).CombinedOutput()
+	}
+	readInitProcess = os.ReadFile
+)
+
+type systemdPreconditionError struct {
+	init string
+}
+
+func (e systemdPreconditionError) Error() string {
+	return fmt.Sprintf("telemetron setup requires systemd; detected init: %s. Use 'telemetron install' + manual service management.", e.init)
+}
+
 type filesystem interface {
 	MkdirAll(path string, perm os.FileMode) error
 	ReadFile(path string) ([]byte, error)
@@ -73,6 +90,36 @@ func newService() Service {
 		executable:  os.Executable,
 		uid:         os.Geteuid,
 	}
+}
+
+func SetupPrecondition() error {
+	if hasSystemd() {
+		return nil
+	}
+	return systemdPreconditionError{init: detectInit()}
+}
+
+func hasSystemd() bool {
+	if info, err := systemdStat("/run/systemd/system"); err == nil && info.IsDir() {
+		return true
+	}
+	if _, err := systemdLookPath("systemctl"); err != nil {
+		return false
+	}
+	_, err := systemdRunOutput("systemctl", "--version")
+	return err == nil
+}
+
+func detectInit() string {
+	data, err := readInitProcess("/proc/1/comm")
+	if err != nil {
+		return "unknown"
+	}
+	initName := strings.TrimSpace(string(data))
+	if initName == "" {
+		return "unknown"
+	}
+	return initName
 }
 
 func (s *linuxService) Install(cfg config.Config, token string) error {

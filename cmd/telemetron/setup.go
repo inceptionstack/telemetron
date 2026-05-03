@@ -3,6 +3,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,9 +17,29 @@ import (
 	"github.com/inceptionstack/telemetron/internal/config"
 	"github.com/inceptionstack/telemetron/internal/service"
 	"github.com/inceptionstack/telemetron/internal/setupevents"
+	"github.com/inceptionstack/telemetron/internal/status"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
+
+var (
+	setupPlatform              = runtime.GOOS
+	setupGeteuid               = os.Geteuid
+	findOpenClawMainCandidates = agentdetect.FindOpenClawMainCandidates
+	setupServicePrecondition   = service.SetupPrecondition
+	newSetupService            = service.New
+	readSetupStatus            = func() (status.Snapshot, error) {
+		return status.New("/var/lib/telemetron/status.json").Read()
+	}
+)
+
+const unresolvedRootSessionHint = "cannot resolve session-dir under UID 0 with no $SUDO_USER set.\nPass --run-as <user> --session-dir <path>, or set TELEMETRON_RUN_AS /\nTELEMETRON_SESSION_DIR."
+
+type rootSessionResolutionError struct{}
+
+func (rootSessionResolutionError) Error() string {
+	return unresolvedRootSessionHint
+}
 
 // setupFlags collects everything the setup command accepts. The same
 // struct is used for both non-interactive and interactive paths; prompts
@@ -32,6 +53,7 @@ type setupFlags struct {
 	runAs            string
 	deploymentID     string
 	tier             string
+	healthTimeout    string
 	insecureEndpoint bool
 
 	yes            bool
@@ -59,6 +81,7 @@ on-disk state and restarts the service as needed.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSetup(cmd, &f)
 		},
+		SilenceUsage: true,
 	}
 
 	cmd.Flags().StringVar(&f.endpoint, "endpoint", "", "OTLP/HTTP endpoint (env: TELEMETRON_ENDPOINT)")
@@ -68,6 +91,7 @@ on-disk state and restarts the service as needed.`,
 	cmd.Flags().StringVar(&f.runAs, "run-as", "", "OS user the service runs as; default: $SUDO_USER (env: TELEMETRON_RUN_AS)")
 	cmd.Flags().StringVar(&f.deploymentID, "deployment-id", "", "deployment id; default: loki@<hostname> (env: TELEMETRON_DEPLOYMENT_ID)")
 	cmd.Flags().StringVar(&f.tier, "tier", "", "deployment tier (env: TELEMETRON_TIER)")
+	cmd.Flags().StringVar(&f.healthTimeout, "health-timeout", "", "health-check timeout; default: 60s (env: TELEMETRON_HEALTH_TIMEOUT)")
 	cmd.Flags().BoolVar(&f.insecureEndpoint, "insecure-endpoint", false, "allow http:// endpoints (testing only)")
 	cmd.Flags().BoolVar(&f.yes, "yes", false, "skip the confirmation prompt; the summary is still printed")
 	cmd.Flags().BoolVar(&f.nonInteractive, "non-interactive", false, "never prompt; fail fast on missing required input")
@@ -101,6 +125,13 @@ func (e *setupEmitter) info(msg string) {
 	fmt.Fprintln(e.out, msg)
 }
 
+func (e *setupEmitter) phase(step, total int, msg string) {
+	if e.json {
+		return
+	}
+	fmt.Fprintf(e.out, "[%d/%d] %s\n", step, total, msg)
+}
+
 func (e *setupEmitter) errorEnvelope(code string, missing []string, hint string, err error) error {
 	fields := map[string]any{"error_code": code}
 	if len(missing) > 0 {
@@ -125,9 +156,12 @@ func (e *setupEmitter) errorEnvelope(code string, missing []string, hint string,
 func runSetup(cmd *cobra.Command, f *setupFlags) error {
 	emitter := &setupEmitter{json: f.jsonOutput, out: cmd.OutOrStdout(), err: cmd.ErrOrStderr()}
 
-	if runtime.GOOS == "darwin" {
+	if setupPlatform == "darwin" {
 		return emitter.errorEnvelope(setupevents.ErrPreconditionFailed, nil,
 			"telemetron setup is not supported on macOS; see docs/macos.md", nil)
+	}
+	if err := setupServicePrecondition(); err != nil {
+		return emitter.errorEnvelope(setupevents.ErrPreconditionFailed, nil, "", err)
 	}
 
 	// --- 1. Resolve agent detection ---------------------------------------
@@ -215,14 +249,39 @@ func runSetup(cmd *cobra.Command, f *setupFlags) error {
 		return emitter.errorEnvelope(setupevents.ErrTokenReadFailed, nil,
 			"check --token-file / TELEMETRON_TOKEN_FILE / TELEMETRON_TOKEN", err)
 	}
-	emitter.emit(setupevents.EventTokenLoaded, map[string]any{"source": tokenSource})
 
 	cfg, err := buildConfig(resolved)
 	if err != nil {
 		return emitter.errorEnvelope(setupevents.ErrInvalidConfig, nil, "", err)
 	}
 
-	svc := service.New()
+	unchanged, err := configStateUnchanged(cfg, token)
+	if err != nil {
+		return emitter.errorEnvelope(setupevents.ErrInvalidConfig, nil, "", err)
+	}
+	if unchanged {
+		emitter.emit(setupevents.EventUnchanged, map[string]any{
+			"config_path": cfg.FilePath,
+			"token_path":  cfg.TokenFile,
+		})
+		emitter.emit(setupevents.EventSetupCompleted, map[string]any{
+			"endpoint":      resolved.endpoint,
+			"mode":          resolved.mode,
+			"session_dir":   resolved.sessionDir,
+			"deployment_id": resolved.deploymentID,
+			"tier":          resolved.tier,
+			"run_as":        resolved.runAs,
+			"token_path":    cfg.TokenFile,
+			"action_taken":  setupevents.ActionUnchanged,
+			"health":        "skipped",
+		})
+		emitter.info("telemetron unchanged — config and token already match")
+		return nil
+	}
+	emitter.emit(setupevents.EventTokenLoaded, map[string]any{"source": tokenSource})
+
+	emitter.phase(1, 4, "writing config + token")
+	svc := newSetupService()
 	action := setupevents.ActionInstalled
 	if unitExists() {
 		action = setupevents.ActionUpdated
@@ -236,13 +295,20 @@ func runSetup(cmd *cobra.Command, f *setupFlags) error {
 		"config_path": cfg.FilePath,
 	})
 
+	emitter.phase(2, 4, "installing telemetron.service")
+	emitter.phase(3, 4, "enabling + starting telemetron.service")
 	if err := svc.EnableAndStart(); err != nil {
 		return emitter.errorEnvelope(setupevents.ErrServiceStartFailed, nil, "", err)
 	}
 	emitter.emit(setupevents.EventServiceStarted, nil)
 
 	// --- 5. Health verification --------------------------------------------
-	if err := verifyFirstFlush(emitter); err != nil {
+	healthTimeout, err := resolveHealthTimeout(f)
+	if err != nil {
+		return emitter.errorEnvelope(setupevents.ErrInvalidConfig, nil, "", err)
+	}
+	emitter.phase(4, 4, "probing first flush")
+	if err := verifyFirstFlush(emitter, healthTimeout); err != nil {
 		return emitter.errorEnvelope(setupevents.ErrHealthCheckFailed, nil,
 			"service started but first flush did not land within the timeout", err)
 	}
@@ -290,6 +356,22 @@ func resolveDetection(f *setupFlags) (agentdetect.Detection, []agentdetect.Candi
 		}, nil, nil
 	}
 
+	if shouldUseRootHomeScan(runAs, sessionDir) {
+		candidates, err := findOpenClawMainCandidates(setupPlatform, "")
+		if err != nil {
+			return agentdetect.Detection{}, nil, err
+		}
+		if len(candidates) != 1 {
+			return agentdetect.Detection{}, nil, rootSessionResolutionError{}
+		}
+		return agentdetect.Detection{
+			Mode:       "openclaw",
+			SessionDir: candidates[0].SessionDir,
+			RunAsUser:  candidates[0].RunAsUser,
+			AgentName:  candidates[0].AgentName,
+		}, nil, nil
+	}
+
 	d, err := agentdetect.DetectOpenClaw(agentdetect.Options{User: runAs})
 	if err != nil {
 		return agentdetect.Detection{}, nil, err
@@ -308,6 +390,17 @@ func resolveDetection(f *setupFlags) (agentdetect.Detection, []agentdetect.Candi
 		d.RunAsUser = runAs
 	}
 	return d, nil, nil
+}
+
+func shouldUseRootHomeScan(runAs, sessionDir string) bool {
+	if runAs != "" || sessionDir != "" {
+		return false
+	}
+	if setupGeteuid() != 0 {
+		return false
+	}
+	sudoUser := strings.TrimSpace(os.Getenv("SUDO_USER"))
+	return sudoUser == ""
 }
 
 func resolveInputs(f *setupFlags, d agentdetect.Detection) (resolvedSetup, []string, error) {
@@ -330,6 +423,12 @@ func resolveInputs(f *setupFlags, d agentdetect.Detection) (resolvedSetup, []str
 		}
 		if r.mode == "" {
 			r.mode = existing.Mode
+		}
+		if r.sessionDir == "" {
+			r.sessionDir = existingSessionDir(*existing)
+		}
+		if r.runAs == "" {
+			r.runAs = existing.RunAs
 		}
 		if r.deploymentID == "" {
 			r.deploymentID = existing.Declared.DeploymentID
@@ -402,7 +501,11 @@ func renderSummary(r resolvedSetup) string {
 	fmt.Fprintf(&b, "  deployment_id: %s\n", r.deploymentID)
 	fmt.Fprintf(&b, "  tier:          %s\n", r.tier)
 	if r.tokenFile != "" {
-		fmt.Fprintf(&b, "  token file:    %s (copied to /etc/telemetron/token, mode 0400)\n", r.tokenFile)
+		tokenSource := "copied to /etc/telemetron/token, mode 0400"
+		if secretID := strings.TrimSpace(os.Getenv("TELEMETRON_TOKEN_SECRET")); secretID != "" {
+			tokenSource += fmt.Sprintf("; source: TELEMETRON_TOKEN_SECRET=%s", secretID)
+		}
+		fmt.Fprintf(&b, "  token file:    %s (%s)\n", r.tokenFile, tokenSource)
 	} else if r.tokenFromEnv != "" {
 		b.WriteString("  token source:  TELEMETRON_TOKEN (env)\n")
 	} else {
@@ -454,6 +557,7 @@ func buildConfig(r resolvedSetup) (config.Config, error) {
 		"endpoint":               r.endpoint,
 		"mode":                   r.mode,
 		"insecure_endpoint":      r.insecureEndpoint,
+		"run_as":                 r.runAs,
 		"declared.deployment_id": r.deploymentID,
 		"declared.tier":          r.tier,
 	}
@@ -472,38 +576,119 @@ func buildConfig(r resolvedSetup) (config.Config, error) {
 	return cfg, nil
 }
 
+func existingSessionDir(cfg config.Config) string {
+	raw := cfg.Collectors[cfg.Mode]
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return ""
+	}
+	sessionDir, _ := m["session_dir"].(string)
+	return sessionDir
+}
+
+func configStateUnchanged(cfg config.Config, token string) (bool, error) {
+	desiredConfig, err := cfg.Marshal()
+	if err != nil {
+		return false, err
+	}
+
+	existingConfig, err := os.ReadFile(cfg.FilePath)
+	if err == nil {
+		existingLoaded, loadErr := config.Load(config.LoadOptions{
+			ConfigPath:    cfg.FilePath,
+			BootstrapOnly: true,
+		})
+		if loadErr != nil {
+			return false, loadErr
+		}
+		resolvedRaw, resolveErr := config.ResolveCollectorRaw(existingLoaded.Mode, existingLoaded.Paths, existingLoaded.Collectors[existingLoaded.Mode])
+		if resolveErr != nil {
+			return false, resolveErr
+		}
+		existingLoaded.Collectors[existingLoaded.Mode] = resolvedRaw
+		existingConfig, err = existingLoaded.Marshal()
+	}
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	existingToken, err := os.ReadFile(cfg.TokenFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	return configStateHash(desiredConfig, []byte(token)) == configStateHash(existingConfig, existingToken), nil
+}
+
+func configStateHash(configData, tokenData []byte) [32]byte {
+	h := sha256.New()
+	h.Write(configData)
+	h.Write([]byte{0})
+	h.Write(tokenData)
+	var sum [32]byte
+	copy(sum[:], h.Sum(nil))
+	return sum
+}
+
 // --- verifyFirstFlush is intentionally simple. It waits for the status
 // file (written by the background flusher) to show a first success. The
 // status store is already the source of truth for `telemetron status`.
-func verifyFirstFlush(e *setupEmitter) error {
-	// 30s is well over the 15s default flush interval; users can Ctrl+C.
-	const timeoutSeconds = 30
-	for i := 0; i < timeoutSeconds; i++ {
-		// Existing status.json check. We do not hard-require it because
-		// tests may mock the service; absence after 30s is a warning, not
-		// a hard failure, but we still surface it as health_check_failed.
-		if statusHealthy() {
+func verifyFirstFlush(e *setupEmitter, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var last status.Snapshot
+	for {
+		snapshot, ok := statusHealthy()
+		if ok {
 			return nil
+		}
+		last = snapshot
+		if !time.Now().Before(deadline) {
+			break
 		}
 		time.Sleep(time.Second)
 	}
-	return fmt.Errorf("no successful flush observed within %ds", timeoutSeconds)
+	return fmt.Errorf("no successful flush observed within %s%s", timeout, formatLastHTTPResponse(last))
 }
 
-func statusHealthy() bool {
-	data, err := os.ReadFile("/var/lib/telemetron/status.json")
+func resolveHealthTimeout(f *setupFlags) (time.Duration, error) {
+	raw := firstNonEmpty(f.healthTimeout, os.Getenv("TELEMETRON_HEALTH_TIMEOUT"))
+	if raw == "" {
+		return 60 * time.Second, nil
+	}
+	timeout, err := time.ParseDuration(raw)
 	if err != nil {
-		return false
+		return 0, fmt.Errorf("parse health timeout %q: %w", raw, err)
 	}
-	// Very lax: any JSON object with a "last_flush_ok" flag true passes.
-	var payload map[string]any
-	if err := json.Unmarshal(data, &payload); err != nil {
-		return false
+	if timeout <= 0 {
+		return 0, fmt.Errorf("health timeout must be greater than zero")
 	}
-	if ok, _ := payload["last_flush_ok"].(bool); ok {
-		return true
+	return timeout, nil
+}
+
+func statusHealthy() (status.Snapshot, bool) {
+	snapshot, err := readSetupStatus()
+	if err != nil {
+		return status.Snapshot{}, false
 	}
-	return false
+	if !snapshot.LastFlushAt.IsZero() {
+		return snapshot, true
+	}
+	return snapshot, false
+}
+
+func formatLastHTTPResponse(snapshot status.Snapshot) string {
+	if snapshot.LastHTTPStatus == 0 && snapshot.LastHTTPBody == "" {
+		return ""
+	}
+	if snapshot.LastHTTPBody == "" {
+		return fmt.Sprintf("; last HTTP response: %d", snapshot.LastHTTPStatus)
+	}
+	return fmt.Sprintf("; last HTTP response: %d %s", snapshot.LastHTTPStatus, snapshot.LastHTTPBody)
 }
 
 // --- prompt helpers ------------------------------------------------------

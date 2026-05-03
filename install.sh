@@ -29,11 +29,37 @@
 # Auto-setup requires root (it writes /etc/telemetron/* and the systemd unit);
 # the script will re-exec itself under sudo if needed.
 
-set -eu
+set -e
+
+if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+  cat <<'EOF'
+telemetron installer
+
+Usage:
+  sh install.sh
+
+Optional environment:
+  TELEMETRON_VERSION       pin a specific release tag (default: latest)
+  TELEMETRON_PREFIX        install root (default: $HOME/.local)
+  TELEMETRON_ENDPOINT      OTLP/HTTP endpoint URL for auto-setup
+  TELEMETRON_TOKEN         bearer token for auto-setup
+  TELEMETRON_TOKEN_FILE    path to a file containing the bearer token
+  TELEMETRON_TOKEN_SECRET  AWS Secrets Manager secret id fetched via `aws`
+  TELEMETRON_SETUP_ARGS    extra args appended verbatim to `telemetron setup`
+
+Exactly one of TELEMETRON_TOKEN, TELEMETRON_TOKEN_FILE, or
+TELEMETRON_TOKEN_SECRET is required for auto-setup.
+EOF
+  exit 0
+fi
 
 REPO="inceptionstack/telemetron"
 VERSION="${TELEMETRON_VERSION:-}"
-PREFIX_DEFAULT="$HOME/.local"
+HOME_DEFAULT="${HOME:-}"
+if [ -z "$HOME_DEFAULT" ]; then
+  HOME_DEFAULT="$(cd ~ 2>/dev/null && pwd || printf '/tmp')"
+fi
+PREFIX_DEFAULT="$HOME_DEFAULT/.local"
 PREFIX="${TELEMETRON_PREFIX:-$PREFIX_DEFAULT}"
 
 SETUP_ENDPOINT="${TELEMETRON_ENDPOINT:-}"
@@ -156,6 +182,12 @@ printf '\ntelemetron-install: installed %s\n' "$bindir/telemetron"
 # If the caller supplied an endpoint and a token source, run
 # `telemetron setup` non-interactively so the whole thing is one call.
 if [ -n "$SETUP_ENDPOINT" ] || [ -n "$SETUP_TOKEN" ] || [ -n "$SETUP_TOKEN_FILE" ] || [ -n "$SETUP_TOKEN_SECRET" ]; then
+  if [ "$os" = "darwin" ]; then
+    printf 'telemetron-install: binary installed; skipping auto-setup because systemd service auto-setup is Linux-only\n'
+    printf '  run telemetron manually or under launchd on macOS; see docs/macos.md\n'
+    exit 0
+  fi
+
   if [ -z "$SETUP_ENDPOINT" ]; then
     printf 'telemetron-install: TELEMETRON_ENDPOINT is required when a token source is set\n' >&2
     exit 1
@@ -281,7 +313,7 @@ if [ -n "$SETUP_ENDPOINT" ] || [ -n "$SETUP_TOKEN" ] || [ -n "$SETUP_TOKEN_FILE"
   # split into argv. This is a trusted local env var; document that
   # callers must not pass untrusted input here.
   # shellcheck disable=SC2086
-  $maybe_sudo env PATH="$PATH" "$bindir/telemetron" setup \
+  $maybe_sudo env PATH="$PATH" TELEMETRON_TOKEN_SECRET="$SETUP_TOKEN_SECRET" "$bindir/telemetron" setup \
     --non-interactive --yes \
     --endpoint "$SETUP_ENDPOINT" \
     --token-file "$token_path" \
