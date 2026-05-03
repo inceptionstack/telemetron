@@ -74,7 +74,9 @@ sudo systemctl restart systemd-journald
 Example:
 
 ```bash
-printf '%s\n' 'new-token' | sudo tee /etc/telemetron/token >/dev/null
+# No trailing newline — the file must hold the raw bearer value
+# byte-for-byte, otherwise strict authorizers may reject it with 403.
+printf '%s' 'new-token' | sudo tee /etc/telemetron/token >/dev/null
 # Match the service's run-as user (check with:
 #   systemctl show telemetron.service --property=User --value )
 RUNAS=$(systemctl show telemetron.service --property=User --value)

@@ -42,15 +42,28 @@ func NewExporter(endpoint, token string, declared map[string]string, client *htt
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
 	// Defense in depth: bearer tokens must not contain leading/trailing
-	// whitespace or CR/LF. Trim here so an accidentally-miswritten token
-	// file does not produce a corrupt Authorization header that strict
-	// authorizers reject with 403 (we've seen this in production).
+	// whitespace, NUL, or BOM. Strict authorizers (e.g. the loki-telemetry
+	// regex authorizer) reject any such corruption with 403. We sanitize
+	// here as the last line of defense regardless of source.
 	return &Exporter{
 		endpoint: endpoint,
-		token:    strings.Trim(token, " \t\r\n"),
+		token:    sanitizeToken(token),
 		client:   client,
 		declared: declared,
 	}
+}
+
+// sanitizeToken normalizes a bearer token value so it can be used as an
+// HTTP header without corruption. It strips:
+//   - Unicode whitespace (via strings.TrimSpace: space, tab, CR, LF,
+//     form feed, vertical tab, Unicode spaces)
+//   - a leading UTF-8 BOM (U+FEFF), which can be injected by editors
+//     saving the token file as "UTF-8 with BOM"
+//   - NUL bytes, which would truncate or break header parsers
+func sanitizeToken(token string) string {
+	token = strings.TrimPrefix(token, "\ufeff")
+	token = strings.ReplaceAll(token, "\x00", "")
+	return strings.TrimSpace(token)
 }
 
 func (e *Exporter) Export(ctx context.Context, points []Point) (Response, error) {

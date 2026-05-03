@@ -63,11 +63,17 @@ func TestExporterTrimsTokenWhitespace(t *testing.T) {
 		name string
 		raw  string
 	}{
-		{"trailing LF", "lpk_live_abc\n"},
-		{"trailing CRLF", "lpk_live_abc\r\n"},
-		{"leading space", " lpk_live_abc"},
-		{"trailing space", "lpk_live_abc "},
-		{"leading tab trailing LF", "\tlpk_live_abc\n"},
+		// Fixture uses "xyz" (non-hex) so the value cannot match the
+		// production regex `lpk_live_[0-9a-f]{32}` and cannot be
+		// mistaken for (or allowlist-leak) a real token by git-secrets.
+		{"trailing LF", "lpk_live_xyz\n"},
+		{"trailing CRLF", "lpk_live_xyz\r\n"},
+		{"leading space", " lpk_live_xyz"},
+		{"trailing space", "lpk_live_xyz "},
+		{"leading tab trailing LF", "\tlpk_live_xyz\n"},
+		{"UTF-8 BOM", "\ufefflpk_live_xyz"},
+		{"form feed", "\flpk_live_xyz\f"},
+		{"vertical tab", "\vlpk_live_xyz\v"},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -85,8 +91,8 @@ func TestExporterTrimsTokenWhitespace(t *testing.T) {
 				{Name: "pack.tool.call", Count: 1},
 			})
 			require.NoError(t, err)
-			require.Equal(t, "Bearer lpk_live_abc", gotAuth,
-				"exporter must strip surrounding whitespace/CRLF from bearer token")
+			require.Equal(t, "Bearer lpk_live_xyz", gotAuth,
+				"exporter must strip surrounding whitespace / BOM / CRLF from bearer token")
 		})
 	}
 }

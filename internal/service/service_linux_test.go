@@ -159,6 +159,11 @@ func TestInstallChownsTokenAndStateDir(t *testing.T) {
 	require.Contains(t, fs.chowns, "/etc/telemetron/token")
 	require.Contains(t, fs.chowns, "/var/lib/telemetron")
 	require.Contains(t, fs.chowns, "/var/lib/telemetron/existing.json")
+	// Token file must not gain a trailing newline — it is an HTTP
+	// header value, not a POSIX text file. A trailing \n tripped a
+	// production authorizer regex in 2026-05-03 (incident fix 64247a0).
+	require.Equal(t, []byte("secret"), fs.data["/etc/telemetron/token"],
+		"InstallAs must write the token byte-for-byte with no trailing newline")
 	// Unit must be pinned to the system user when SUDO_USER is unset.
 	unit := string(fs.data["/etc/systemd/system/telemetron.service"])
 	require.Contains(t, unit, "User=telemetron")
