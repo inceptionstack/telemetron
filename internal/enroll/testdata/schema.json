@@ -1,0 +1,27 @@
+{
+  "schema": "lowkey.enroll.v1",
+  "allowed_keys": [
+    "schema",
+    "install_id",
+    "machine_id",
+    "os",
+    "arch",
+    "source",
+    "telemetron_version"
+  ],
+  "required_string_keys": [
+    "install_id",
+    "machine_id",
+    "os",
+    "arch",
+    "source",
+    "telemetron_version"
+  ],
+  "allowed_os": ["linux", "darwin", "windows"],
+  "allowed_arch": ["amd64", "arm64"],
+  "allowed_source": ["lowkey-installer", "telemetron-standalone"],
+  "install_id_pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+  "machine_id_pattern": "^sha256:[0-9a-f]{64}$",
+  "token_pattern": "^lpk_enroll_[0-9a-f]{64}$",
+  "telemetron_version_pattern": "^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$"
+}

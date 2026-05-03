@@ -177,3 +177,60 @@ func TestLoadTokenOrEnroll_AutoEnrollHappyPath(t *testing.T) {
 		t.Fatalf("expected enrolled token, got %q", tok)
 	}
 }
+
+func TestLoadTokenOrEnroll_AutoEnrollConflictMentionsDifferentMachine(t *testing.T) {
+	for _, k := range []string{"TELEMETRON_TOKEN_SECRET", "TELEMETRON_TOKEN", "TELEMETRON_TOKEN_FILE", "TELEMETRON_NO_AUTO_ENROLL"} {
+		t.Setenv(k, "")
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "conflict", http.StatusConflict)
+	}))
+	defer server.Close()
+
+	prevSetupTokenPath := setupTokenPath
+	prevNewEnrollClient := newEnrollClient
+	prevReadOrGenerate := readOrGenerateInstallID
+	prevComputeMachineID := computeMachineID
+	t.Cleanup(func() {
+		setupTokenPath = prevSetupTokenPath
+		newEnrollClient = prevNewEnrollClient
+		readOrGenerateInstallID = prevReadOrGenerate
+		computeMachineID = prevComputeMachineID
+	})
+	setupTokenPath = filepath.Join(t.TempDir(), "missing")
+	newEnrollClient = func(endpoint string, httpClient *http.Client) *enroll.Client {
+		return enroll.NewClient(server.URL, server.Client())
+	}
+	readOrGenerateInstallID = func(path string) (string, error) {
+		return "550e8400-e29b-41d4-a716-446655440000", nil
+	}
+	computeMachineID = func() (string, error) {
+		return "sha256:" + strings.Repeat("a", 64), nil
+	}
+
+	_, _, err := loadTokenOrEnroll(context.Background(), resolvedSetup{}, config.Config{
+		TokenFile: setupTokenPath,
+	})
+	if err == nil || !strings.Contains(err.Error(), "already enrolled to a different machine") {
+		t.Fatalf("expected clear conflict error, got %v", err)
+	}
+}
+
+func TestLoadTokenOrEnroll_AutoEnrollDisabledReturnsClearError(t *testing.T) {
+	t.Setenv("TELEMETRON_TOKEN_SECRET", "")
+	t.Setenv("TELEMETRON_TOKEN", "")
+	t.Setenv("TELEMETRON_TOKEN_FILE", "")
+	t.Setenv("TELEMETRON_NO_AUTO_ENROLL", "1")
+
+	prevSetupTokenPath := setupTokenPath
+	t.Cleanup(func() { setupTokenPath = prevSetupTokenPath })
+	setupTokenPath = filepath.Join(t.TempDir(), "missing")
+
+	_, _, err := loadTokenOrEnroll(context.Background(), resolvedSetup{}, config.Config{
+		TokenFile: setupTokenPath,
+	})
+	if err == nil || err.Error() != "auto-enroll disabled" {
+		t.Fatalf("expected auto-enroll disabled error, got %v", err)
+	}
+}

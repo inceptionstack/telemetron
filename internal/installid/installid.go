@@ -9,17 +9,25 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/inceptionstack/telemetron/internal/fsatomic"
 )
 
 var uuidV4Re = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
+var installIDPathLocks sync.Map
+
 // ReadOrGenerate reads /etc/telemetron/install-id if it exists; otherwise
 // generates a new UUIDv4, writes it to /etc/telemetron/install-id with 0644 perms
 // (intentionally world-readable; see docs/privacy.md for rationale),
 // and returns it. Directory /etc/telemetron is created 0755 if absent.
 func ReadOrGenerate(path string) (string, error) {
+	lockAny, _ := installIDPathLocks.LoadOrStore(path, &sync.Mutex{})
+	lock := lockAny.(*sync.Mutex)
+	lock.Lock()
+	defer lock.Unlock()
+
 	installID, err := Read(path)
 	if err == nil {
 		return installID, nil

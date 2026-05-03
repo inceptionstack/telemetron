@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -506,6 +507,104 @@ func TestRunSetup_AutoEnrollUsesEnrolledToken(t *testing.T) {
 	}
 }
 
+func TestRunSetup_AutoEnrollWritesInstallIDAndTokenFiles(t *testing.T) {
+	resetEnv(t)
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	installIDPath := filepath.Join(dir, "install-id")
+	tokenPath := filepath.Join(dir, "token")
+	t.Setenv("TELEMETRON_CONFIG", configPath)
+
+	enrolledToken := "lpk_enroll_" + strings.Repeat("0123456789abcdef", 4)
+	const installID = "550e8400-e29b-41d4-a716-446655440000"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"token":"` + enrolledToken + `","install_id":"` + installID + `"}`))
+	}))
+	defer server.Close()
+
+	prevPlatform := setupPlatform
+	prevGeteuid := setupGeteuid
+	prevPrecondition := setupServicePrecondition
+	prevNewService := newSetupService
+	prevReadStatus := readSetupStatus
+	prevNewEnrollClient := newEnrollClient
+	prevComputeMachineID := computeMachineID
+	prevSetupInstallIDPath := setupInstallIDPath
+	prevSetupTokenPath := setupTokenPath
+	t.Cleanup(func() {
+		setupPlatform = prevPlatform
+		setupGeteuid = prevGeteuid
+		setupServicePrecondition = prevPrecondition
+		newSetupService = prevNewService
+		readSetupStatus = prevReadStatus
+		newEnrollClient = prevNewEnrollClient
+		computeMachineID = prevComputeMachineID
+		setupInstallIDPath = prevSetupInstallIDPath
+		setupTokenPath = prevSetupTokenPath
+	})
+
+	setupPlatform = "linux"
+	setupGeteuid = func() int { return 1000 }
+	setupServicePrecondition = func() error { return nil }
+	readSetupStatus = func() (status.Snapshot, error) {
+		return status.Snapshot{LastFlushAt: time.Now().UTC(), LastHTTPStatus: 200}, nil
+	}
+	newEnrollClient = func(endpoint string, httpClient *http.Client) *enroll.Client {
+		return enroll.NewClient(server.URL, server.Client())
+	}
+	computeMachineID = func() (string, error) {
+		return "sha256:" + strings.Repeat("a", 64), nil
+	}
+	setupInstallIDPath = installIDPath
+	setupTokenPath = tokenPath
+	newSetupService = func() service.Service {
+		return &writingSetupService{}
+	}
+
+	cmd := newSetupCmd()
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	err := runSetup(cmd, &setupFlags{
+		nonInteractive: true,
+		yes:            true,
+		endpoint:       "https://example.test/v1/metrics",
+		mode:           "openclaw",
+		sessionDir:     "/tmp/sessions",
+		runAs:          "alice",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	installData, err := os.ReadFile(installIDPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(installData)) != installID {
+		t.Fatalf("unexpected install-id contents: %q", string(installData))
+	}
+	tokenData, err := os.ReadFile(tokenPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(tokenData) != enrolledToken {
+		t.Fatalf("unexpected token contents: %q", string(tokenData))
+	}
+	if info, err := os.Stat(installIDPath); err != nil {
+		t.Fatal(err)
+	} else if info.Mode().Perm() != 0o644 {
+		t.Fatalf("unexpected install-id perms: %o", info.Mode().Perm())
+	}
+	if info, err := os.Stat(tokenPath); err != nil {
+		t.Fatal(err)
+	} else if info.Mode().Perm() != 0o400 {
+		t.Fatalf("unexpected token perms: %o", info.Mode().Perm())
+	}
+}
+
 type fakeSetupService struct{}
 
 func (fakeSetupService) Install(config.Config, string) error           { return nil }
@@ -526,6 +625,29 @@ func (s *capturingSetupService) InstallAs(_ config.Config, token, _ string) erro
 func (s *capturingSetupService) Uninstall() error                     { return nil }
 func (s *capturingSetupService) EnableAndStart() error                { return nil }
 func (s *capturingSetupService) ProbeStatus() (service.Status, error) { return service.Status{}, nil }
+
+type writingSetupService struct{}
+
+func (writingSetupService) Install(config.Config, string) error { return nil }
+func (writingSetupService) InstallAs(cfg config.Config, token, _ string) error {
+	data, err := cfg.Marshal()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(cfg.FilePath), 0o755); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(cfg.TokenFile), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(cfg.FilePath, data, 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(cfg.TokenFile, []byte(token), 0o400)
+}
+func (writingSetupService) Uninstall() error                     { return nil }
+func (writingSetupService) EnableAndStart() error                { return nil }
+func (writingSetupService) ProbeStatus() (service.Status, error) { return service.Status{}, nil }
 
 func TestDefaultDeploymentID(t *testing.T) {
 	if got := defaultDeploymentID("main"); !startsWithLokiPrefix(got) {

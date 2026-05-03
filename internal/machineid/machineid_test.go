@@ -2,7 +2,10 @@
 
 package machineid
 
-import "testing"
+import (
+	"regexp"
+	"testing"
+)
 
 func TestComputeFromFrozenVectors(t *testing.T) {
 	t.Parallel()
@@ -41,5 +44,22 @@ func TestComputeFromFrozenVectors(t *testing.T) {
 				t.Fatalf("ComputeFrom(%q, %q) = %q, want %q", tt.etcMachineID, tt.hostname, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestComputeReturnsStableHashedMachineIDOnHost(t *testing.T) {
+	first, err := Compute()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Compute()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second {
+		t.Fatalf("expected stable machine id, got %q and %q", first, second)
+	}
+	if !regexp.MustCompile(`^sha256:[0-9a-f]{64}$`).MatchString(first) {
+		t.Fatalf("unexpected machine id format: %q", first)
 	}
 }

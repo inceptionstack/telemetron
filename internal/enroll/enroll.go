@@ -109,7 +109,7 @@ func (c *Client) Enroll(ctx context.Context, req EnrollRequest) (EnrollResponse,
 	for attempt := 0; attempt < 2; attempt++ {
 		resp, err := c.do(ctx, payload)
 		if err == nil {
-			parsed, parseErr := parseResponse(resp)
+			parsed, parseErr := parseResponse(resp, req.InstallID)
 			if parseErr == nil {
 				return parsed, nil
 			}
@@ -177,12 +177,15 @@ func (c *Client) do(ctx context.Context, payload []byte) (*http.Response, error)
 	return resp, nil
 }
 
-func parseResponse(resp *http.Response) (EnrollResponse, error) {
+func parseResponse(resp *http.Response, wantInstallID string) (EnrollResponse, error) {
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyRead))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyRead+1))
 	if err != nil {
 		return EnrollResponse{}, fmt.Errorf("read enroll response: %w", err)
+	}
+	if len(body) > maxResponseBodyRead {
+		return EnrollResponse{}, fmt.Errorf("enroll response exceeded %d bytes", maxResponseBodyRead)
 	}
 	bodyText := strings.TrimSpace(string(body))
 
@@ -206,6 +209,9 @@ func parseResponse(resp *http.Response) (EnrollResponse, error) {
 	}
 	if !installid.Validate(payloadResp.InstallID) {
 		return EnrollResponse{}, fmt.Errorf("malformed install_id %q", payloadResp.InstallID)
+	}
+	if payloadResp.InstallID != wantInstallID {
+		return EnrollResponse{}, fmt.Errorf("enroll response install_id mismatch: got %q want %q", payloadResp.InstallID, wantInstallID)
 	}
 
 	return EnrollResponse(payloadResp), nil
