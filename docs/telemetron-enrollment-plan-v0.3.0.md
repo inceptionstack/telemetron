@@ -1,9 +1,9 @@
 # telemetron auto-enrollment plan (v0.3.0) — REVISED
 
-Status: **proposal v5 — pending final Codex review**
+Status: **proposal v6 — pending final Codex review**
 Author: Loki@FastStart
 Date: 2026-05-03
-Supersedes: v4 (v4 retry fallback was unimplementable — can't reconstruct a token from its hash; v5 stores token plaintext in DDB row; fixes stale revocation runbook + task wording)
+Supersedes: v5 (v5 had GSI projection:ALL exposing plaintext token to authorizer; v6 tightens projection + IAM boundary)
 
 ## Problem
 
@@ -106,9 +106,12 @@ That's the only wire change. The bearer still authenticates; install_id is a cor
   2. Attempt DDB `PutItem` with `ConditionExpression=attribute_not_exists(install_id)`:
      ```
      PK        = install_id   (base-table PK; atomic uniqueness enforced here)
-     token      = <plaintext token>   (DDB encrypted at rest; enables idempotent retry without re-mint)
-     token_hash = sha256(token)       (lowercase hex, 64 chars; GSI projection for authorizer lookups)
-     GSI1 PK   = token_hash   (name: token-hash-index, projection: ALL)
+     token      = <plaintext token>   (DDB encrypted at rest; readable ONLY by lambda-enroll via base-table GetItem)
+     token_hash = sha256(token)       (lowercase hex, 64 chars)
+     GSI1 PK   = token_hash
+     GSI1 name = token-hash-index
+     GSI1 projection = INCLUDE: install_id, revoked, machine_id
+                      (token intentionally EXCLUDED from projection — authorizer never receives plaintext)
      attrs     = machine_id, os, arch, source, telemetron_version, created_at,
                  revoked (bool, default false), revoked_at (nullable)
      ```
@@ -124,8 +127,18 @@ That's the only wire change. The bearer still authenticates; install_id is a cor
 
 **Authorizer changes:**
 - Accepts both `lpk_live_*` (existing, regex match, no DDB lookup)
-- And `lpk_enroll_*` (new) — on match, `Query GSI token-hash-index WHERE token_hash = sha256(bearer)`. Accepts only if exactly one row exists **AND** `revoked == false`. 401 otherwise.
-- On accept, the authorizer passes `enrolled_install_id` (from the GSI result's `install_id` attribute) to the ingest Lambda via a signed request context attribute.
+- And `lpk_enroll_*` (new) — on match, `Query GSI token-hash-index WHERE token_hash = sha256(bearer)`. Response includes only `install_id`, `revoked`, `machine_id` (GSI INCLUDE projection — **`token` intentionally excluded**). Accepts only if exactly one row exists **AND** `revoked == false`. 401 otherwise.
+- `lambda-authorizer` IAM role: `dynamodb:Query` on `token-hash-index` GSI only. **No `dynamodb:GetItem` on the base table.** Cannot read plaintext `token`.
+- On accept, passes `enrolled_install_id` to ingest Lambda via signed request context.
+
+**IAM access boundaries:**
+
+| Lambda | DDB permissions |
+|---|---|
+| `lambda-enroll` | `GetItem`, `PutItem`, `UpdateItem` on base table (full row, including `token` plaintext) |
+| `lambda-authorizer` | `Query` on `token-hash-index` GSI only. No `GetItem`. Cannot see `token`. |
+| `lambda-ingest` | No DDB access. Gets `enrolled_install_id` from authorizer context only. |
+| Operator (IAM role) | `Query` on GSI + `UpdateItem` on base table for revocation. No read of `token`. |
 
 **Ingest Lambda changes (Codex-required):**
 1. Strip any client-supplied `install_id` from the incoming OTLP resource attrs.
@@ -202,9 +215,12 @@ A `docs/privacy.md` ships in the same PR listing every attribute sent, retention
 
 ## Changes since v2 (Codex-driven)
 
-## Changes since v4 (Codex v4 review)
+## Changes since v5 (Codex v5 review)
 
-| Codex finding | Fix in v5 |
+| Codex finding | Fix in v6 |
+|---|---|
+| GSI `projection:ALL` exposed plaintext `token` to authorizer (`Query` on GSI returns full row) | Changed GSI projection to `INCLUDE: install_id, revoked, machine_id` — `token` excluded. Authorizer can never read plaintext token via GSI path |
+| No stated IAM boundary around who can read `token` | Added IAM access boundary table: only `lambda-enroll` gets base-table `GetItem`; `lambda-authorizer` gets GSI `Query` only |
 |---|---|
 | Retry fallback unimplementable — can't reconstruct token from its hash | Store `token` plaintext in DDB row (encrypted at rest). `GetItem(PK=install_id)` on retry returns `row.token` directly |
 | Revocation runbook used old PK (`token_hash`) | Updated to two-step: `QueryGSI(token_hash) → UpdateItem(PK=install_id, SET revoked=true)` |
