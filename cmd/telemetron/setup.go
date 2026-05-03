@@ -535,8 +535,15 @@ func unitExists() bool {
 }
 
 func loadExistingConfig() *config.Config {
+	// Only reconcile against a real on-disk config. config.Load returns a
+	// fully-defaulted Config{} even when config.yaml is absent, which used
+	// to poison the setup flow: the default TokenFile was assigned to
+	// r.tokenFile and auto-enroll never ran on a clean host.
 	cfg, err := config.Load(config.LoadOptions{BootstrapOnly: true})
 	if err != nil {
+		return nil
+	}
+	if _, statErr := os.Stat(cfg.FilePath); statErr != nil {
 		return nil
 	}
 	return &cfg
