@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/inceptionstack/telemetron/internal/agentdetect"
+	"github.com/inceptionstack/telemetron/internal/config"
 	"github.com/inceptionstack/telemetron/internal/service"
 	"github.com/inceptionstack/telemetron/internal/status"
 )
@@ -238,6 +239,12 @@ func TestVerifyFirstFlushIncludesLastHTTPResponse(t *testing.T) {
 	}
 }
 
+func TestNewSetupCmdSilencesUsage(t *testing.T) {
+	if !newSetupCmd().SilenceUsage {
+		t.Fatal("setup command must silence usage on runtime errors")
+	}
+}
+
 func TestConfigStateHashChangesWithConfigOrToken(t *testing.T) {
 	base := configStateHash([]byte("config-a"), []byte("token-a"))
 	if base == configStateHash([]byte("config-b"), []byte("token-a")) {
@@ -312,6 +319,77 @@ openclaw:
 		t.Fatalf("expected unchanged output, got %q", stdout.String())
 	}
 }
+
+func TestRunSetup_EmitsProgressSteps(t *testing.T) {
+	resetEnv(t)
+
+	dir := t.TempDir()
+	configPath := dir + "/config.yaml"
+	tokenPath := dir + "/token"
+	if err := os.WriteFile(tokenPath, []byte("secret"), 0o400); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TELEMETRON_CONFIG", configPath)
+
+	prevPlatform := setupPlatform
+	prevGeteuid := setupGeteuid
+	prevPrecondition := setupServicePrecondition
+	prevNewService := newSetupService
+	prevReadStatus := readSetupStatus
+	t.Cleanup(func() {
+		setupPlatform = prevPlatform
+		setupGeteuid = prevGeteuid
+		setupServicePrecondition = prevPrecondition
+		newSetupService = prevNewService
+		readSetupStatus = prevReadStatus
+	})
+
+	setupPlatform = "linux"
+	setupGeteuid = func() int { return 1000 }
+	setupServicePrecondition = func() error { return nil }
+	newSetupService = func() service.Service { return fakeSetupService{} }
+	readSetupStatus = func() (status.Snapshot, error) {
+		return status.Snapshot{LastFlushAt: time.Now().UTC(), LastHTTPStatus: 200}, nil
+	}
+
+	cmd := newSetupCmd()
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	err := runSetup(cmd, &setupFlags{
+		nonInteractive: true,
+		yes:            true,
+		endpoint:       "https://example.test/v1/metrics",
+		tokenFile:      tokenPath,
+		mode:           "openclaw",
+		sessionDir:     "/tmp/sessions",
+		runAs:          "alice",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	output := stdout.String()
+	for _, step := range []string{
+		"[1/4] writing config + token",
+		"[2/4] installing telemetron.service",
+		"[3/4] enabling + starting telemetron.service",
+		"[4/4] probing first flush",
+	} {
+		if !strings.Contains(output, step) {
+			t.Fatalf("missing progress step %q in output %q", step, output)
+		}
+	}
+}
+
+type fakeSetupService struct{}
+
+func (fakeSetupService) Install(config.Config, string) error           { return nil }
+func (fakeSetupService) InstallAs(config.Config, string, string) error { return nil }
+func (fakeSetupService) Uninstall() error                              { return nil }
+func (fakeSetupService) EnableAndStart() error                         { return nil }
+func (fakeSetupService) ProbeStatus() (service.Status, error)          { return service.Status{}, nil }
 
 func TestDefaultDeploymentID(t *testing.T) {
 	if got := defaultDeploymentID("main"); !startsWithLokiPrefix(got) {

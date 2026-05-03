@@ -75,6 +75,7 @@ on-disk state and restarts the service as needed.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSetup(cmd, &f)
 		},
+		SilenceUsage: true,
 	}
 
 	cmd.Flags().StringVar(&f.endpoint, "endpoint", "", "OTLP/HTTP endpoint (env: TELEMETRON_ENDPOINT)")
@@ -116,6 +117,13 @@ func (e *setupEmitter) info(msg string) {
 		return
 	}
 	fmt.Fprintln(e.out, msg)
+}
+
+func (e *setupEmitter) phase(step, total int, msg string) {
+	if e.json {
+		return
+	}
+	fmt.Fprintf(e.out, "[%d/%d] %s\n", step, total, msg)
 }
 
 func (e *setupEmitter) errorEnvelope(code string, missing []string, hint string, err error) error {
@@ -266,6 +274,7 @@ func runSetup(cmd *cobra.Command, f *setupFlags) error {
 	}
 	emitter.emit(setupevents.EventTokenLoaded, map[string]any{"source": tokenSource})
 
+	emitter.phase(1, 4, "writing config + token")
 	svc := newSetupService()
 	action := setupevents.ActionInstalled
 	if unitExists() {
@@ -280,6 +289,8 @@ func runSetup(cmd *cobra.Command, f *setupFlags) error {
 		"config_path": cfg.FilePath,
 	})
 
+	emitter.phase(2, 4, "installing telemetron.service")
+	emitter.phase(3, 4, "enabling + starting telemetron.service")
 	if err := svc.EnableAndStart(); err != nil {
 		return emitter.errorEnvelope(setupevents.ErrServiceStartFailed, nil, "", err)
 	}
@@ -290,6 +301,7 @@ func runSetup(cmd *cobra.Command, f *setupFlags) error {
 	if err != nil {
 		return emitter.errorEnvelope(setupevents.ErrInvalidConfig, nil, "", err)
 	}
+	emitter.phase(4, 4, "probing first flush")
 	if err := verifyFirstFlush(emitter, healthTimeout); err != nil {
 		return emitter.errorEnvelope(setupevents.ErrHealthCheckFailed, nil,
 			"service started but first flush did not land within the timeout", err)
