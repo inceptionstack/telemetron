@@ -3,6 +3,7 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,6 +26,7 @@ var (
 	setupGeteuid               = os.Geteuid
 	findOpenClawMainCandidates = agentdetect.FindOpenClawMainCandidates
 	setupServicePrecondition   = service.SetupPrecondition
+	newSetupService            = service.New
 )
 
 const unresolvedRootSessionHint = "cannot resolve session-dir under UID 0 with no $SUDO_USER set.\nPass --run-as <user> --session-dir <path>, or set TELEMETRON_RUN_AS /\nTELEMETRON_SESSION_DIR."
@@ -229,14 +231,38 @@ func runSetup(cmd *cobra.Command, f *setupFlags) error {
 		return emitter.errorEnvelope(setupevents.ErrTokenReadFailed, nil,
 			"check --token-file / TELEMETRON_TOKEN_FILE / TELEMETRON_TOKEN", err)
 	}
-	emitter.emit(setupevents.EventTokenLoaded, map[string]any{"source": tokenSource})
 
 	cfg, err := buildConfig(resolved)
 	if err != nil {
 		return emitter.errorEnvelope(setupevents.ErrInvalidConfig, nil, "", err)
 	}
 
-	svc := service.New()
+	unchanged, err := configStateUnchanged(cfg, token)
+	if err != nil {
+		return emitter.errorEnvelope(setupevents.ErrInvalidConfig, nil, "", err)
+	}
+	if unchanged {
+		emitter.emit(setupevents.EventUnchanged, map[string]any{
+			"config_path": cfg.FilePath,
+			"token_path":  cfg.TokenFile,
+		})
+		emitter.emit(setupevents.EventSetupCompleted, map[string]any{
+			"endpoint":      resolved.endpoint,
+			"mode":          resolved.mode,
+			"session_dir":   resolved.sessionDir,
+			"deployment_id": resolved.deploymentID,
+			"tier":          resolved.tier,
+			"run_as":        resolved.runAs,
+			"token_path":    cfg.TokenFile,
+			"action_taken":  setupevents.ActionUnchanged,
+			"health":        "skipped",
+		})
+		emitter.info("telemetron unchanged — config and token already match")
+		return nil
+	}
+	emitter.emit(setupevents.EventTokenLoaded, map[string]any{"source": tokenSource})
+
+	svc := newSetupService()
 	action := setupevents.ActionInstalled
 	if unitExists() {
 		action = setupevents.ActionUpdated
@@ -532,6 +558,55 @@ func existingSessionDir(cfg config.Config) string {
 	}
 	sessionDir, _ := m["session_dir"].(string)
 	return sessionDir
+}
+
+func configStateUnchanged(cfg config.Config, token string) (bool, error) {
+	desiredConfig, err := cfg.Marshal()
+	if err != nil {
+		return false, err
+	}
+
+	existingConfig, err := os.ReadFile(cfg.FilePath)
+	if err == nil {
+		existingLoaded, loadErr := config.Load(config.LoadOptions{
+			ConfigPath:    cfg.FilePath,
+			BootstrapOnly: true,
+		})
+		if loadErr != nil {
+			return false, loadErr
+		}
+		resolvedRaw, resolveErr := config.ResolveCollectorRaw(existingLoaded.Mode, existingLoaded.Paths, existingLoaded.Collectors[existingLoaded.Mode])
+		if resolveErr != nil {
+			return false, resolveErr
+		}
+		existingLoaded.Collectors[existingLoaded.Mode] = resolvedRaw
+		existingConfig, err = existingLoaded.Marshal()
+	}
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	existingToken, err := os.ReadFile(cfg.TokenFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	return configStateHash(desiredConfig, []byte(token)) == configStateHash(existingConfig, existingToken), nil
+}
+
+func configStateHash(configData, tokenData []byte) [32]byte {
+	h := sha256.New()
+	h.Write(configData)
+	h.Write([]byte{0})
+	h.Write(tokenData)
+	var sum [32]byte
+	copy(sum[:], h.Sum(nil))
+	return sum
 }
 
 // --- verifyFirstFlush is intentionally simple. It waits for the status

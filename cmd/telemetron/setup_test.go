@@ -6,10 +6,12 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/inceptionstack/telemetron/internal/agentdetect"
+	"github.com/inceptionstack/telemetron/internal/service"
 )
 
 // These tests target the pure-resolution path: flags + env + detection
@@ -210,6 +212,81 @@ func TestRunSetup_FailsPreconditionWhenSystemdMissing(t *testing.T) {
 	}
 	if err.Error() != "precondition_failed: telemetron setup requires systemd; detected init: bash. Use 'telemetron install' + manual service management." {
 		t.Fatalf("unexpected error: %q", err)
+	}
+}
+
+func TestConfigStateHashChangesWithConfigOrToken(t *testing.T) {
+	base := configStateHash([]byte("config-a"), []byte("token-a"))
+	if base == configStateHash([]byte("config-b"), []byte("token-a")) {
+		t.Fatal("config hash should change when config changes")
+	}
+	if base == configStateHash([]byte("config-a"), []byte("token-b")) {
+		t.Fatal("config hash should change when token changes")
+	}
+}
+
+func TestRunSetup_SkipsRestartWhenConfigUnchanged(t *testing.T) {
+	resetEnv(t)
+
+	dir := t.TempDir()
+	configPath := dir + "/config.yaml"
+	tokenPath := dir + "/token"
+	configYAML := strings.TrimSpace(`
+endpoint: https://existing.example/v1/metrics
+mode: openclaw
+run_as: existing-user
+token_file: `+tokenPath+`
+declared:
+  deployment_id: existing-deployment
+  tier: production
+openclaw:
+  session_dir: /existing/sessions
+`) + "\n"
+	if err := os.WriteFile(configPath, []byte(configYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tokenPath, []byte("secret"), 0o400); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TELEMETRON_CONFIG", configPath)
+
+	prevPlatform := setupPlatform
+	prevGeteuid := setupGeteuid
+	prevPrecondition := setupServicePrecondition
+	prevNewService := newSetupService
+	t.Cleanup(func() {
+		setupPlatform = prevPlatform
+		setupGeteuid = prevGeteuid
+		setupServicePrecondition = prevPrecondition
+		newSetupService = prevNewService
+	})
+
+	setupPlatform = "linux"
+	setupGeteuid = func() int { return 1000 }
+	setupServicePrecondition = func() error { return nil }
+	newSetupService = func() service.Service {
+		t.Fatal("service should not be constructed on unchanged setup")
+		return nil
+	}
+
+	cmd := newSetupCmd()
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	err := runSetup(cmd, &setupFlags{
+		nonInteractive: true,
+		yes:            true,
+		mode:           "openclaw",
+		sessionDir:     "/existing/sessions",
+		runAs:          "existing-user",
+		tokenFile:      tokenPath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "telemetron unchanged") {
+		t.Fatalf("expected unchanged output, got %q", stdout.String())
 	}
 }
 
