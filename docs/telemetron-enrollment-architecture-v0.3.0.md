@@ -169,7 +169,7 @@ graph LR
     INSTALLSH -.writes.-> TSETUP
 
     TSETUP --> TENROLL
-    TENROLL -->|/v1/enroll<br/>(standalone)| APIGW
+    TENROLL -->|/v1/enroll<br/>&#40;standalone&#41;| APIGW
     TEXPORT -->|/v1/metrics<br/>w/ install_id| APIGW
     TSHARED -.algorithm.-> TENROLL
     TSHARED -.same alg.-> INSTALLSH
@@ -221,7 +221,7 @@ graph LR
     end
 
     LOWKEY -->|POST /v1/install| INSTALL
-    TX -->|POST /v1/metrics<br/>(install_id rebound server-side)| METRICS
+    TX -->|POST /v1/metrics<br/>&#40;install_id rebound server-side&#41;| METRICS
     INSTALL --> Q
     METRICS --> Q
 
