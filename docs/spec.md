@@ -57,7 +57,8 @@ mode: openclaw
 # OTLP/HTTP endpoint the agent should POST to.
 endpoint: https://your-otlp-gateway.example.com/v1/metrics
 
-# Path to a file containing the bearer token. Must be chmod 0600.
+# Path to a file containing the bearer token. Must be chmod 0400
+# and owned by the telemetron service user.
 # Never store the token inline in the YAML.
 token_file: /etc/telemetron/token
 
@@ -256,14 +257,16 @@ writes on every tick. No IPC, just read-the-file.
 ├── internal/config/config.go         # YAML + env merge
 ├── internal/contract/allowlist.go    # metric names, attr keys, enums
 ├── internal/contract/normalize.go    # enum guarding
-├── internal/collectors/registry.go   # mode -> constructor
-├── internal/openclaw/collector.go    # Collector impl
+├── internal/collectorapi/api.go      # collector registry + MetricSink interface
+├── internal/openclaw/collector.go    # openclaw Collector impl
 ├── internal/openclaw/derive.go       # tool.class / model.family / …
 ├── internal/openclaw/state.go        # durable offsets
 ├── internal/otlp/sink.go             # buffered MetricSink impl
 ├── internal/otlp/exporter.go         # POST /v1/metrics via protobuf
-├── internal/systemd/unit.go          # install/uninstall
+├── internal/service/service.go       # service abstraction
+├── internal/service/service_linux.go # systemd install/uninstall/status
 ├── internal/status/store.go          # status file read/write
+├── internal/telemetry/optout.go      # opt-out signal resolution
 ├── go.mod  go.sum
 ├── Makefile
 ├── README.md

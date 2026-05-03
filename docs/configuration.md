@@ -16,7 +16,8 @@ Configuration is assembled in layers:
 Special cases:
 
 - `TELEMETRON_TOKEN` overrides `token_file` at runtime when `telemetron start` reads credentials.
-- `telemetron install` resolves the token in this order: `--token`, `TELEMETRON_TOKEN`, existing token file.
+- `TELEMETRON_TOKEN_FILE` overrides `token_file` via config load; the resolved path is then read at runtime unless `TELEMETRON_TOKEN` is also set (which wins).
+- `telemetron install` resolves the token in this order: `--token`, `TELEMETRON_TOKEN`, existing `token_file` (path resolved from config, `--token-file` equivalent via `TELEMETRON_TOKEN_FILE`, or the platform default).
 - `telemetron install` resolves `--endpoint` and `--mode` before the config load, so those flags win over the corresponding environment variables.
 
 ## Platform defaults
