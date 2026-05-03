@@ -9,12 +9,25 @@
 #   curl -fsSL https://raw.githubusercontent.com/inceptionstack/telemetron/main/install.sh | sh
 #
 # Optional environment overrides:
-#   TELEMETRON_VERSION   pin a specific release tag (default: latest)
-#   TELEMETRON_PREFIX    install root (default: $HOME/.local, or /usr/local with sudo)
+#   TELEMETRON_VERSION     pin a specific release tag (default: latest)
+#   TELEMETRON_PREFIX      install root (default: $HOME/.local, or /usr/local with sudo)
+#
+# Auto-setup (runs `telemetron setup` at the end when all three are set):
+#   TELEMETRON_ENDPOINT      OTLP/HTTP endpoint URL
+#   TELEMETRON_TOKEN         bearer token (takes precedence over token-file)
+#   TELEMETRON_TOKEN_FILE    path to a file containing the bearer token
+#   TELEMETRON_TOKEN_SECRET  AWS Secrets Manager secret id (fetched via `aws`)
+#   TELEMETRON_SETUP_ARGS    extra args appended verbatim to `telemetron setup`
+#
+# Exactly one of TELEMETRON_TOKEN, TELEMETRON_TOKEN_FILE, or
+# TELEMETRON_TOKEN_SECRET is required for auto-setup. When an endpoint
+# is set but no token source is given, the installer exits non-zero.
+# When neither endpoint nor token are set, setup is skipped and the
+# script behaves as before.
 #
 # The script is POSIX shell and uses only curl, tar, sha256sum|shasum, uname, sed.
-# It does NOT install the systemd service; that requires root. After install,
-# run `telemetron install --help` for service setup.
+# Auto-setup requires root (it writes /etc/telemetron/* and the systemd unit);
+# the script will re-exec itself under sudo if needed.
 
 set -eu
 
@@ -22,6 +35,12 @@ REPO="inceptionstack/telemetron"
 VERSION="${TELEMETRON_VERSION:-}"
 PREFIX_DEFAULT="$HOME/.local"
 PREFIX="${TELEMETRON_PREFIX:-$PREFIX_DEFAULT}"
+
+SETUP_ENDPOINT="${TELEMETRON_ENDPOINT:-}"
+SETUP_TOKEN="${TELEMETRON_TOKEN:-}"
+SETUP_TOKEN_FILE="${TELEMETRON_TOKEN_FILE:-}"
+SETUP_TOKEN_SECRET="${TELEMETRON_TOKEN_SECRET:-}"
+SETUP_ARGS="${TELEMETRON_SETUP_ARGS:-}"
 
 need() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -133,6 +152,65 @@ fi
 printf '\ntelemetron-install: installed %s\n' "$bindir/telemetron"
 "$bindir/telemetron" version || true
 
+# -------- optional auto-setup --------
+# If the caller supplied both an endpoint and a token source, run
+# `telemetron setup` non-interactively so the whole thing is one call.
+if [ -n "$SETUP_ENDPOINT" ] || [ -n "$SETUP_TOKEN" ] || [ -n "$SETUP_TOKEN_FILE" ] || [ -n "$SETUP_TOKEN_SECRET" ]; then
+  if [ -z "$SETUP_ENDPOINT" ]; then
+    printf 'telemetron-install: TELEMETRON_ENDPOINT is required when a token source is set\n' >&2
+    exit 1
+  fi
+  if [ -z "$SETUP_TOKEN" ] && [ -z "$SETUP_TOKEN_FILE" ] && [ -z "$SETUP_TOKEN_SECRET" ]; then
+    printf 'telemetron-install: TELEMETRON_ENDPOINT is set but no token source was provided\n' >&2
+    printf '  set one of TELEMETRON_TOKEN, TELEMETRON_TOKEN_FILE, TELEMETRON_TOKEN_SECRET\n' >&2
+    exit 1
+  fi
+
+  # Resolve the token to /etc/telemetron/token. Root required.
+  token_path="/etc/telemetron/token"
+
+  maybe_sudo=""
+  if [ "$(id -u)" -ne 0 ]; then
+    if command -v sudo >/dev/null 2>&1; then
+      maybe_sudo="sudo"
+    else
+      printf 'telemetron-install: auto-setup requires root; re-run with sudo\n' >&2
+      exit 1
+    fi
+  fi
+
+  printf '\ntelemetron-install: running auto-setup\n'
+  $maybe_sudo install -d -m 0755 /etc/telemetron
+
+  if [ -n "$SETUP_TOKEN" ]; then
+    printf '%s\n' "$SETUP_TOKEN" | $maybe_sudo tee "$token_path" >/dev/null
+  elif [ -n "$SETUP_TOKEN_FILE" ]; then
+    if [ "$SETUP_TOKEN_FILE" != "$token_path" ]; then
+      $maybe_sudo install -m 0400 "$SETUP_TOKEN_FILE" "$token_path"
+    fi
+  else
+    # TELEMETRON_TOKEN_SECRET: fetch from AWS Secrets Manager
+    need aws
+    region="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
+    aws secretsmanager get-secret-value \
+        --region "$region" \
+        --secret-id "$SETUP_TOKEN_SECRET" \
+        --query SecretString --output text \
+      | $maybe_sudo tee "$token_path" >/dev/null
+  fi
+  $maybe_sudo chmod 0400 "$token_path"
+
+  # shellcheck disable=SC2086
+  $maybe_sudo env PATH="$PATH" "$bindir/telemetron" setup \
+    --non-interactive --yes \
+    --endpoint "$SETUP_ENDPOINT" \
+    --token-file "$token_path" \
+    $SETUP_ARGS
+
+  printf '\ntelemetron-install: auto-setup complete\n'
+  exit 0
+fi
+
 cat <<'EOF'
 
 Next steps:
@@ -141,12 +219,10 @@ Next steps:
   2. Verify the binary:
        telemetron version
        telemetron --help
-  3. For a systemd service install (Linux), see:
-       telemetron install --help
+  3. Wire it to your OTLP gateway (recommended):
+       sudo telemetron setup --endpoint <url> --token-file <path>
 
-To opt out of telemetry before starting the service, set one of:
-  DO_NOT_TRACK=1
-  TELEMETRON_TELEMETRY=0
-or create the marker file:
-  mkdir -p ~/.telemetron && touch ~/.telemetron/telemetry-off
+Shortcut: set TELEMETRON_ENDPOINT and TELEMETRON_TOKEN (or
+TELEMETRON_TOKEN_FILE / TELEMETRON_TOKEN_SECRET) before running this
+installer and it will do the setup step for you.
 EOF

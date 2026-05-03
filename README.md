@@ -19,23 +19,60 @@ Modern coding agents leave rich local state behind, but shipping that state raw 
 
 ### One-line installer (recommended)
 
-Downloads the latest Linux/macOS (amd64/arm64) release tarball from GitHub,
-verifies its SHA-256 against the published `checksums.txt`, and installs the
-binary into `$HOME/.local/bin/telemetron`:
+Install the binary only:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/inceptionstack/telemetron/main/install.sh | sh
 ```
 
+Install **and** configure the systemd service in one shot by setting an
+endpoint and a token source:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/inceptionstack/telemetron/main/install.sh \
+  | sudo env TELEMETRON_ENDPOINT=https://your-otlp-gateway.example.com/v1/metrics \
+             TELEMETRON_TOKEN=your-bearer-token \
+             sh
+```
+
+The installer downloads the latest Linux/macOS (amd64/arm64) release
+tarball, verifies its SHA-256 against the published `checksums.txt`,
+installs the binary into `$HOME/.local/bin/telemetron` (or
+`/usr/local/bin` under sudo), and — when an endpoint + token are
+provided — runs `telemetron setup --non-interactive --yes` before
+exiting.
+
 The script is [POSIX shell](install.sh) and uses only `curl`, `tar`,
-`sha256sum` (or `shasum`), and `uname`. It does **not** configure the systemd
-service; for that, run `telemetron install --help` after the binary is on
-your `PATH`.
+`sha256sum` (or `shasum`), and `uname`.
 
 Environment overrides:
 
-- `TELEMETRON_VERSION` — pin a specific release tag (default: latest)
-- `TELEMETRON_PREFIX` — install root (default: `$HOME/.local`)
+| var | purpose |
+| --- | --- |
+| `TELEMETRON_VERSION` | pin a specific release tag (default: latest) |
+| `TELEMETRON_PREFIX` | install root (default: `$HOME/.local`) |
+| `TELEMETRON_ENDPOINT` | OTLP/HTTP endpoint to configure |
+| `TELEMETRON_TOKEN` | bearer token value (takes precedence) |
+| `TELEMETRON_TOKEN_FILE` | path to a file containing the bearer token |
+| `TELEMETRON_TOKEN_SECRET` | AWS Secrets Manager secret id (requires `aws` CLI) |
+| `TELEMETRON_SETUP_ARGS` | extra args appended to `telemetron setup` |
+
+Examples:
+
+```bash
+# AWS Secrets Manager
+curl -fsSL https://raw.githubusercontent.com/inceptionstack/telemetron/main/install.sh \
+  | sudo env TELEMETRON_ENDPOINT=https://otlp.example.com/v1/metrics \
+             TELEMETRON_TOKEN_SECRET=/my/telemetron/token \
+             AWS_REGION=us-east-1 \
+             sh
+
+# Token already on disk
+curl -fsSL https://raw.githubusercontent.com/inceptionstack/telemetron/main/install.sh \
+  | sudo env TELEMETRON_ENDPOINT=https://otlp.example.com/v1/metrics \
+             TELEMETRON_TOKEN_FILE=/run/secrets/telemetron-token \
+             sh
+```
 
 ### Alternatives
 
