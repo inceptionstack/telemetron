@@ -93,9 +93,15 @@ Checklist:
 
 ## Disabling telemetry
 
-Set `DO_NOT_TRACK=1` or `CLAWTELLO_DISABLE=1` in the service unit’s environment (drop-in override) to have `clawtello start` exit cleanly without loading config, reading the token, or opening any sockets. Truthy values are `1`, `true`, `yes`, `on` (case-insensitive).
+Three opt-out signals, matching the `lowkey` installer family convention:
 
-Example drop-in:
+- `DO_NOT_TRACK=1` — shared community standard. Truthy: `1|true|yes|on`.
+- `CLAWTELLO_TELEMETRY=0` — tool-specific. Falsy: `0|false|no|off`. Unset means telemetry stays enabled.
+- `~/.clawtello/telemetry-off` — marker file. Useful for the `clawtello` service user, where editing env vars needs a drop-in.
+
+When any signal is present, `clawtello start` exits cleanly without loading config, reading the token, or opening any sockets.
+
+Example drop-in to opt out via env:
 
 ```ini
 [Service]
@@ -103,3 +109,11 @@ Environment=DO_NOT_TRACK=1
 ```
 
 Apply with `sudo systemctl daemon-reload && sudo systemctl restart clawtello`.
+
+Or use the marker file:
+
+```bash
+sudo -u clawtello install -d -m 0700 ~clawtello/.clawtello
+sudo -u clawtello touch ~clawtello/.clawtello/telemetry-off
+sudo systemctl restart clawtello
+```

@@ -147,12 +147,13 @@ The collector interface is intentionally additive. If you need support for anoth
 
 ## Disabling telemetry
 
-`clawtello` respects the [`DO_NOT_TRACK`](https://consoledonottrack.com) convention. When either of these env vars is set to a truthy value (`1`, `true`, `yes`, `on`, case-insensitive), `clawtello start` exits immediately without loading config, reading the token, or opening any sockets.
+`clawtello` honors three opt-out signals, matching the `lowkey` installer family convention:
 
-- `DO_NOT_TRACK` — shared community standard
-- `CLAWTELLO_DISABLE` — tool-specific override
+1. `DO_NOT_TRACK=1` — the [consoledonottrack.com](https://consoledonottrack.com) community standard. Truthy values: `1`, `true`, `yes`, `on` (case-insensitive).
+2. `CLAWTELLO_TELEMETRY=0` — tool-specific. Falsy values: `0`, `false`, `no`, `off` (case-insensitive). Unset means telemetry is enabled.
+3. `~/.clawtello/telemetry-off` — create this empty marker file when you can’t set env vars (for example when `clawtello` runs as its own service user).
 
-`clawtello status` reports `telemetry: disabled (via <VAR>)` instead of probing the service.
+When any signal is present, `clawtello start` exits cleanly without loading config, reading the token, or opening any sockets. `clawtello status` reports `telemetry: disabled (<source>)` instead of probing the service.
 
 ## Status
 

@@ -2,45 +2,89 @@
 
 package telemetry
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func TestIsDisabled(t *testing.T) {
 	t.Parallel()
 
+	type result struct {
+		disabled bool
+		source   string
+	}
+
+	fakeHome := "/fake/home"
+	marker := filepath.Join(fakeHome, markerFileRel)
+
 	cases := []struct {
-		name    string
-		env     map[string]string
-		want    bool
-		wantVar string
+		name     string
+		env      map[string]string
+		files    map[string]bool // path -> exists
+		homeErr  bool
+		expected result
 	}{
-		{"unset", map[string]string{}, false, ""},
-		{"do_not_track=1", map[string]string{"DO_NOT_TRACK": "1"}, true, "DO_NOT_TRACK"},
-		{"do_not_track=true", map[string]string{"DO_NOT_TRACK": "true"}, true, "DO_NOT_TRACK"},
-		{"do_not_track=TRUE", map[string]string{"DO_NOT_TRACK": "TRUE"}, true, "DO_NOT_TRACK"},
-		{"do_not_track=yes", map[string]string{"DO_NOT_TRACK": "yes"}, true, "DO_NOT_TRACK"},
-		{"do_not_track=on", map[string]string{"DO_NOT_TRACK": "on"}, true, "DO_NOT_TRACK"},
-		{"do_not_track=0", map[string]string{"DO_NOT_TRACK": "0"}, false, ""},
-		{"do_not_track=false", map[string]string{"DO_NOT_TRACK": "false"}, false, ""},
-		{"do_not_track=empty", map[string]string{"DO_NOT_TRACK": ""}, false, ""},
-		{"do_not_track=whitespace", map[string]string{"DO_NOT_TRACK": "   "}, false, ""},
-		{"clawtello_disable=1", map[string]string{"CLAWTELLO_DISABLE": "1"}, true, "CLAWTELLO_DISABLE"},
-		{"dnt_wins_over_clawtello", map[string]string{"DO_NOT_TRACK": "1", "CLAWTELLO_DISABLE": "1"}, true, "DO_NOT_TRACK"},
-		{"only_clawtello_set", map[string]string{"DO_NOT_TRACK": "", "CLAWTELLO_DISABLE": "yes"}, true, "CLAWTELLO_DISABLE"},
-		{"padded_truthy", map[string]string{"DO_NOT_TRACK": "  1  "}, true, "DO_NOT_TRACK"},
+		{"unset", nil, nil, false, result{false, ""}},
+		{"do_not_track=1", map[string]string{"DO_NOT_TRACK": "1"}, nil, false, result{true, "env:DO_NOT_TRACK"}},
+		{"do_not_track=true", map[string]string{"DO_NOT_TRACK": "true"}, nil, false, result{true, "env:DO_NOT_TRACK"}},
+		{"do_not_track=TRUE", map[string]string{"DO_NOT_TRACK": "TRUE"}, nil, false, result{true, "env:DO_NOT_TRACK"}},
+		{"do_not_track=yes", map[string]string{"DO_NOT_TRACK": "yes"}, nil, false, result{true, "env:DO_NOT_TRACK"}},
+		{"do_not_track=on", map[string]string{"DO_NOT_TRACK": "on"}, nil, false, result{true, "env:DO_NOT_TRACK"}},
+		{"do_not_track=0_noop", map[string]string{"DO_NOT_TRACK": "0"}, nil, false, result{false, ""}},
+		{"do_not_track=false_noop", map[string]string{"DO_NOT_TRACK": "false"}, nil, false, result{false, ""}},
+		{"do_not_track=empty", map[string]string{"DO_NOT_TRACK": ""}, nil, false, result{false, ""}},
+		{"do_not_track=whitespace", map[string]string{"DO_NOT_TRACK": "   "}, nil, false, result{false, ""}},
+
+		// LOWKEY-style: CLAWTELLO_TELEMETRY=0 opts out.
+		{"clawtello_telemetry=0", map[string]string{"CLAWTELLO_TELEMETRY": "0"}, nil, false, result{true, "env:CLAWTELLO_TELEMETRY"}},
+		{"clawtello_telemetry=false", map[string]string{"CLAWTELLO_TELEMETRY": "false"}, nil, false, result{true, "env:CLAWTELLO_TELEMETRY"}},
+		{"clawtello_telemetry=OFF", map[string]string{"CLAWTELLO_TELEMETRY": "OFF"}, nil, false, result{true, "env:CLAWTELLO_TELEMETRY"}},
+		{"clawtello_telemetry=1_noop", map[string]string{"CLAWTELLO_TELEMETRY": "1"}, nil, false, result{false, ""}},
+		{"clawtello_telemetry=empty_noop", map[string]string{"CLAWTELLO_TELEMETRY": ""}, nil, false, result{false, ""}},
+		{"clawtello_telemetry=unset_noop", nil, nil, false, result{false, ""}},
+
+		// CLAWTELLO_DISABLE=1 is also honored (backward compat).
+		{"clawtello_disable=1", map[string]string{"CLAWTELLO_DISABLE": "1"}, nil, false, result{true, "env:CLAWTELLO_DISABLE"}},
+		{"clawtello_disable=0_noop", map[string]string{"CLAWTELLO_DISABLE": "0"}, nil, false, result{false, ""}},
+
+		// Precedence.
+		{"dnt_wins_over_telemetry", map[string]string{"DO_NOT_TRACK": "1", "CLAWTELLO_TELEMETRY": "0"}, nil, false, result{true, "env:DO_NOT_TRACK"}},
+
+		// Marker file.
+		{"marker_file_present", nil, map[string]bool{marker: true}, false, result{true, "file:" + marker}},
+		{"marker_file_absent", nil, map[string]bool{marker: false}, false, result{false, ""}},
+		{"marker_file_home_error", nil, map[string]bool{marker: true}, true, result{false, ""}},
+
+		// Env wins over marker.
+		{"env_wins_over_marker", map[string]string{"DO_NOT_TRACK": "1"}, map[string]bool{marker: true}, false, result{true, "env:DO_NOT_TRACK"}},
 	}
 
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			lookup := func(k string) string { return tc.env[k] }
-			got, gotVar, _ := isDisabled(lookup)
-			if got != tc.want {
-				t.Fatalf("got disabled=%v, want %v (env=%v)", got, tc.want, tc.env)
+			getenv := func(k string) string { return tc.env[k] }
+			exists := func(p string) bool { return tc.files[p] }
+			userHome := func() (string, error) {
+				if tc.homeErr {
+					return "", errTestHome
+				}
+				return fakeHome, nil
 			}
-			if gotVar != tc.wantVar {
-				t.Fatalf("got var=%q, want %q", gotVar, tc.wantVar)
+			got, source, _ := isDisabled(getenv, exists, userHome)
+			if got != tc.expected.disabled {
+				t.Fatalf("disabled got %v want %v (env=%v files=%v)", got, tc.expected.disabled, tc.env, tc.files)
+			}
+			if source != tc.expected.source {
+				t.Fatalf("source got %q want %q", source, tc.expected.source)
 			}
 		})
 	}
 }
+
+type testErr string
+
+func (e testErr) Error() string { return string(e) }
+
+var errTestHome testErr = "test: no home"

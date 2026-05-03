@@ -20,8 +20,8 @@ func newStatusCmd() *cobra.Command {
 		Use:   "status",
 		Short: "Show service status without hitting the network",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if disabled, name, _ := telemetry.IsDisabled(); disabled {
-				fmt.Fprintf(cmd.OutOrStdout(), "telemetry:\tdisabled (via %s)\n", name)
+			if disabled, source, _ := telemetry.IsDisabled(); disabled {
+				fmt.Fprintf(cmd.OutOrStdout(), "telemetry:\tdisabled (%s)\n", source)
 				return nil
 			}
 			svcStatus, err := service.New().ProbeStatus()

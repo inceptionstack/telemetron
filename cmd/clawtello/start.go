@@ -24,10 +24,10 @@ func newStartCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Honour user-facing opt-out BEFORE reading config, token,
 			// or opening any sockets. See internal/telemetry/optout.go.
-			if disabled, name, value := telemetry.IsDisabled(); disabled {
+			if disabled, source, value := telemetry.IsDisabled(); disabled {
 				logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-				logger.Info("telemetry disabled via environment; exiting",
-					"var", name, "value", value)
+				logger.Info("telemetry disabled; exiting",
+					"source", source, "value", value)
 				return nil
 			}
 			cfg, err := config.Load(config.LoadOptions{
