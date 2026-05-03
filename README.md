@@ -52,10 +52,13 @@ Environment overrides:
 | `TELEMETRON_VERSION` | pin a specific release tag (default: latest) |
 | `TELEMETRON_PREFIX` | install root (default: `$HOME/.local`) |
 | `TELEMETRON_ENDPOINT` | OTLP/HTTP endpoint to configure |
-| `TELEMETRON_TOKEN` | bearer token value (takes precedence) |
-| `TELEMETRON_TOKEN_FILE` | path to a file containing the bearer token |
+| `TELEMETRON_TOKEN_FILE` | path to a file containing the bearer token (preferred) |
 | `TELEMETRON_TOKEN_SECRET` | AWS Secrets Manager secret id (requires `aws` CLI) |
-| `TELEMETRON_SETUP_ARGS` | extra args appended to `telemetron setup` |
+| `TELEMETRON_TOKEN` | bearer token value — **not recommended** (leaks via shell history, `/proc/<pid>/environ`, CI logs) |
+| `TELEMETRON_SETUP_ARGS` | extra args appended to `telemetron setup`. Trusted input only — shell-split into argv. |
+
+Exactly one token source must be set. Multiple sources cause the
+installer to refuse to proceed.
 
 Examples:
 

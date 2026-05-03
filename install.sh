@@ -153,26 +153,45 @@ printf '\ntelemetron-install: installed %s\n' "$bindir/telemetron"
 "$bindir/telemetron" version || true
 
 # -------- optional auto-setup --------
-# If the caller supplied both an endpoint and a token source, run
+# If the caller supplied an endpoint and a token source, run
 # `telemetron setup` non-interactively so the whole thing is one call.
 if [ -n "$SETUP_ENDPOINT" ] || [ -n "$SETUP_TOKEN" ] || [ -n "$SETUP_TOKEN_FILE" ] || [ -n "$SETUP_TOKEN_SECRET" ]; then
   if [ -z "$SETUP_ENDPOINT" ]; then
     printf 'telemetron-install: TELEMETRON_ENDPOINT is required when a token source is set\n' >&2
     exit 1
   fi
-  if [ -z "$SETUP_TOKEN" ] && [ -z "$SETUP_TOKEN_FILE" ] && [ -z "$SETUP_TOKEN_SECRET" ]; then
+
+  # Enforce exactly one token source.
+  token_sources=0
+  [ -n "$SETUP_TOKEN" ]        && token_sources=$((token_sources + 1))
+  [ -n "$SETUP_TOKEN_FILE" ]   && token_sources=$((token_sources + 1))
+  [ -n "$SETUP_TOKEN_SECRET" ] && token_sources=$((token_sources + 1))
+  if [ "$token_sources" -eq 0 ]; then
     printf 'telemetron-install: TELEMETRON_ENDPOINT is set but no token source was provided\n' >&2
     printf '  set one of TELEMETRON_TOKEN, TELEMETRON_TOKEN_FILE, TELEMETRON_TOKEN_SECRET\n' >&2
     exit 1
   fi
+  if [ "$token_sources" -gt 1 ]; then
+    printf 'telemetron-install: multiple token sources set; choose exactly one of\n' >&2
+    printf '  TELEMETRON_TOKEN, TELEMETRON_TOKEN_FILE, TELEMETRON_TOKEN_SECRET\n' >&2
+    exit 1
+  fi
 
-  # Resolve the token to /etc/telemetron/token. Root required.
+  # Resolve the token to /etc/telemetron/token. Root required; fail
+  # fast *before* we touch anything so we don't leave the host in a
+  # half-configured state.
   token_path="/etc/telemetron/token"
 
   maybe_sudo=""
   if [ "$(id -u)" -ne 0 ]; then
     if command -v sudo >/dev/null 2>&1; then
       maybe_sudo="sudo"
+      # Prime the sudo credential cache up front so a password prompt
+      # cannot land between the token write and the setup call.
+      if ! sudo -v; then
+        printf 'telemetron-install: auto-setup requires root but sudo refused\n' >&2
+        exit 1
+      fi
     else
       printf 'telemetron-install: auto-setup requires root; re-run with sudo\n' >&2
       exit 1
@@ -180,26 +199,83 @@ if [ -n "$SETUP_ENDPOINT" ] || [ -n "$SETUP_TOKEN" ] || [ -n "$SETUP_TOKEN_FILE"
   fi
 
   printf '\ntelemetron-install: running auto-setup\n'
-  $maybe_sudo install -d -m 0755 /etc/telemetron
 
+  # -------- resolve the token value into a variable --------
+  # We capture the token in-process first, validate it, then write to
+  # disk atomically with mode 0400 in a single step. This avoids the
+  # umask 022 race on `tee` and the pipefail gap under POSIX sh when
+  # `aws` fails.
+  token_value=""
   if [ -n "$SETUP_TOKEN" ]; then
-    printf '%s\n' "$SETUP_TOKEN" | $maybe_sudo tee "$token_path" >/dev/null
+    token_value="$SETUP_TOKEN"
   elif [ -n "$SETUP_TOKEN_FILE" ]; then
-    if [ "$SETUP_TOKEN_FILE" != "$token_path" ]; then
-      $maybe_sudo install -m 0400 "$SETUP_TOKEN_FILE" "$token_path"
+    if [ ! -f "$SETUP_TOKEN_FILE" ]; then
+      printf 'telemetron-install: TELEMETRON_TOKEN_FILE=%s not found\n' "$SETUP_TOKEN_FILE" >&2
+      exit 1
+    fi
+    # Readable by this user? (If not, a privileged source file is the
+    # caller's responsibility; we cannot safely cat it without sudo.)
+    if [ ! -r "$SETUP_TOKEN_FILE" ]; then
+      if [ -n "$maybe_sudo" ]; then
+        token_value="$($maybe_sudo cat "$SETUP_TOKEN_FILE")"
+      else
+        printf 'telemetron-install: cannot read %s\n' "$SETUP_TOKEN_FILE" >&2
+        exit 1
+      fi
+    else
+      token_value="$(cat "$SETUP_TOKEN_FILE")"
     fi
   else
-    # TELEMETRON_TOKEN_SECRET: fetch from AWS Secrets Manager
+    # TELEMETRON_TOKEN_SECRET: fetch from AWS Secrets Manager.
     need aws
     region="${AWS_REGION:-${AWS_DEFAULT_REGION:-us-east-1}}"
-    aws secretsmanager get-secret-value \
-        --region "$region" \
-        --secret-id "$SETUP_TOKEN_SECRET" \
-        --query SecretString --output text \
-      | $maybe_sudo tee "$token_path" >/dev/null
+    if ! token_value="$(aws secretsmanager get-secret-value \
+          --region "$region" \
+          --secret-id "$SETUP_TOKEN_SECRET" \
+          --query SecretString --output text 2>/dev/null)"; then
+      printf 'telemetron-install: aws secretsmanager get-secret-value failed for %s (region=%s)\n' \
+        "$SETUP_TOKEN_SECRET" "$region" >&2
+      exit 1
+    fi
+    # `--output text` returns the literal string "None" when SecretString
+    # is absent (binary secrets) or the secret is empty.
+    if [ "$token_value" = "None" ]; then
+      printf 'telemetron-install: secret %s has no SecretString (binary-only?)\n' "$SETUP_TOKEN_SECRET" >&2
+      exit 1
+    fi
   fi
-  $maybe_sudo chmod 0400 "$token_path"
 
+  # Strip a single trailing newline if the source had one; everything
+  # else (whitespace, CR) stays intact so we don't silently mangle the
+  # token.
+  token_value="${token_value%"
+"}"
+  if [ -z "$token_value" ]; then
+    printf 'telemetron-install: resolved token is empty; refusing to write\n' >&2
+    exit 1
+  fi
+
+  # -------- write token atomically, never world-readable --------
+  $maybe_sudo install -d -m 0755 /etc/telemetron
+  # Stage under the final directory so the rename is same-filesystem
+  # and atomic. umask 077 ensures the staged file is never more
+  # permissive than 0600 before we tighten it to 0400.
+  token_staged="$($maybe_sudo sh -c 'umask 077 && mktemp /etc/telemetron/token.XXXXXX')"
+  trap '[ -n "$token_staged" ] && $maybe_sudo rm -f "$token_staged" 2>/dev/null; rm -rf "$tmp"' EXIT INT TERM
+  # Write the token via stdin so it never appears in argv.
+  printf '%s\n' "$token_value" | $maybe_sudo tee "$token_staged" >/dev/null
+  $maybe_sudo chmod 0400 "$token_staged"
+  $maybe_sudo chown root:root "$token_staged" 2>/dev/null || true
+  $maybe_sudo mv -f "$token_staged" "$token_path"
+  token_staged=""
+  # Clear the in-process copy. POSIX sh has no zeroization; unset is
+  # the best we can do short of overwriting memory.
+  unset token_value SETUP_TOKEN
+
+  # -------- run setup --------
+  # SETUP_ARGS is intentionally passed unquoted so multi-word values
+  # split into argv. This is a trusted local env var; document that
+  # callers must not pass untrusted input here.
   # shellcheck disable=SC2086
   $maybe_sudo env PATH="$PATH" "$bindir/telemetron" setup \
     --non-interactive --yes \
