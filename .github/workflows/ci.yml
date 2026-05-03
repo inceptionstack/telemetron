@@ -113,6 +113,13 @@ jobs:
           git secrets --add 'x-access-token:[A-Za-z0-9_-]+'
           git secrets --add --allowed 'replace-with-your-bearer-token'
           git secrets --add --allowed 'your-otlp-gateway.example.com'
+          # Historical Go test fixtures from commit 64247a0 used a short
+          # 8-char prefix that matches lpk_[a-z]+_[0-9a-f]+. Fixtures
+          # have since been replaced with a non-hex prefix (faaec40) but
+          # --scan-history still reaches the old commit.
+          # Allowlist requires a NON-HEX byte immediately after the
+          # prefix, so no real 32-hex-char production token can match.
+          git secrets --add --allowed 'lpk_live_abc[^0-9a-f]'
       - name: Scan working tree
         run: git secrets --scan
       - name: Scan full history

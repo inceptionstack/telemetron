@@ -34,6 +34,8 @@ git secrets --add 'x-access-token:[A-Za-z0-9_-]+'
 # Allowed patterns that look like tokens but are documentation placeholders.
 git secrets --add --allowed 'replace-with-your-bearer-token'
 git secrets --add --allowed 'your-otlp-gateway.example.com'
+# See ci.yml for rationale; historical fixture allowlist.
+git secrets --add --allowed 'lpk_live_abc[^0-9a-f]'
 
 echo "git-secrets installed and configured. Running an initial scan..."
 git secrets --scan

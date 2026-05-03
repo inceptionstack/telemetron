@@ -48,6 +48,8 @@ jobs:
           git secrets --add 'x-access-token:[A-Za-z0-9_-]+'
           git secrets --add --allowed 'replace-with-your-bearer-token'
           git secrets --add --allowed 'your-otlp-gateway.example.com'
+          # See ci.yml for rationale; historical fixture allowlist.
+          git secrets --add --allowed 'lpk_live_abc[^0-9a-f]'
       - run: git secrets --scan
       - run: git secrets --scan-history
       - name: govulncheck
