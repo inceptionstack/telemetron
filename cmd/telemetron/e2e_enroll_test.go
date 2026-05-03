@@ -305,6 +305,11 @@ type e2eWritingSetupService struct {
 
 func (e2eWritingSetupService) Install(config.Config, string) error { return nil }
 func (s e2eWritingSetupService) InstallAs(cfg config.Config, token, _ string) error {
+	// Point the persisted config at our tempdir token path so a
+	// second runSetup() reloads and finds the same file we wrote.
+	if s.tokenPath != "" {
+		cfg.TokenFile = s.tokenPath
+	}
 	data, err := cfg.Marshal()
 	if err != nil {
 		return err
