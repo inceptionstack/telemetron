@@ -348,10 +348,10 @@ Telemetron will ship bundled with the Loki installer. That means:
   prompts, not a questionnaire.
 - No removing or renaming `telemetron install`. CI users who already
   script against it stay working.
-- No auto-running `setup` from `install.sh | sh` without consent. The
-  installer drops the binary and prints the next-step command. A
-  one-shot "curl | sh installs a systemd service" is too aggressive on
-  first launch. (We can revisit once the UX has soaked.)
+- `install.sh` may auto-run `telemetron setup` only when the operator
+  explicitly supplies the setup contract via environment (`TELEMETRON_ENDPOINT`
+  plus exactly one token source). With no setup env, the installer still
+  drops only the binary and prints next steps.
 - No auto-detection of endpoint/token. Those are project-scoped secrets
   that must be explicit. Auto-detecting them would be a security mistake.
 - No `--reconfigure` flag. `setup` is always safe to rerun.
