@@ -1,9 +1,70 @@
+# Pre-commit hooks for telemetron.
+#
+# Install the pre-commit framework once: https://pre-commit.com
+#   pipx install pre-commit    # or: brew install pre-commit
+#
+# Then enable the hooks in your working copy:
+#   pre-commit install
+#
+# On every `git commit`, this will:
+#   - run git-secrets against the staged diff (blocks accidental tokens)
+#   - reformat Go sources with gofmt -s
+#   - run `go vet` against the module
+#   - catch whitespace / eof hygiene issues
+#
+# Run manually across the whole tree:
+#   pre-commit run --all-files
+#
+# git-secrets itself also needs a one-time per-clone setup so the custom
+# token patterns (`lpk_live_*`, `ghp_*`, `x-access-token:*`, AWS keys, ...)
+# are registered. That is handled by:
+#   bash scripts/git-secrets-install.sh
+#
+# The git-secrets binary must be on your PATH. See that script for
+# install instructions per OS.
+#
+# We intentionally do NOT run gitleaks here: the `gitleaks-action` GitHub
+# Action requires a paid GITLEAKS_LICENSE for org-owned repos, and
+# git-secrets already covers our threat model with repo-specific patterns.
+
 repos:
-  - repo: https://github.com/awslabs/git-secrets
-    rev: 1.3.0
+  - repo: local
     hooks:
       - id: git-secrets
-  - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.18.4
+        name: git-secrets (staged diff)
+        entry: git secrets --pre_commit_hook --
+        language: system
+        stages: [pre-commit]
+        pass_filenames: true
+        # git-secrets itself must be installed on PATH. See
+        # scripts/git-secrets-install.sh for one-time setup per clone
+        # (registers AWS + telemetron token patterns and installs
+        # git-secrets' own pre-commit / commit-msg hooks).
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
     hooks:
-      - id: gitleaks
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+
+  - repo: https://github.com/dnephin/pre-commit-golang
+    rev: v0.5.1
+    hooks:
+      - id: go-fmt
+      - id: go-mod-tidy
+
+  - repo: local
+    hooks:
+      - id: go-vet
+        name: go vet ./...
+        entry: go vet ./...
+        language: system
+        pass_filenames: false
+        files: \.go$

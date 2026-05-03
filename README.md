@@ -175,3 +175,25 @@ Apache-2.0. See [LICENSE](LICENSE).
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Pre-commit hooks
+
+The repo ships a [`.pre-commit-config.yaml`](.pre-commit-config.yaml) that runs `git-secrets`, `gofmt`, `go vet`, and whitespace hygiene on every commit. Enable it locally:
+
+```bash
+# one-time: install the pre-commit framework (https://pre-commit.com)
+pipx install pre-commit        # or: brew install pre-commit
+
+# one-time: configure git-secrets for this clone
+#   - registers AWS + telemetron token patterns
+#   - installs the git-secrets pre-commit / commit-msg / prepare-commit-msg hooks
+bash scripts/git-secrets-install.sh
+
+# enable the pre-commit hooks for this clone
+pre-commit install
+
+# optional: run across the whole tree once
+pre-commit run --all-files
+```
+
+The same `git-secrets` scan runs in CI via [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (`secrets-scan` job, full working tree **and** history). Local hooks + CI keep the token patterns (`lpk_live_*`, `ghp_*`, `github_pat_*`, `x-access-token:*`, AWS keys, …) out of commits.

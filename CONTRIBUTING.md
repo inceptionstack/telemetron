@@ -20,6 +20,29 @@ Useful commands:
 - `go test -race ./...`
 - `go build ./cmd/telemetron`
 
+## Pre-commit hooks
+
+On first checkout, wire up the pre-commit hooks so every `git commit` runs `git-secrets`, `gofmt -s`, `go vet`, and whitespace hygiene against the staged diff:
+
+```bash
+# one-time: install the pre-commit framework (https://pre-commit.com)
+pipx install pre-commit          # or brew install pre-commit
+
+# one-time per clone: register AWS + telemetron token patterns
+#   (lpk_live_*, ghp_*, github_pat_*, x-access-token:*, AWS keys, …)
+#   This also installs git-secrets' own pre-commit / commit-msg hooks.
+bash scripts/git-secrets-install.sh
+
+# enable the [.pre-commit-config.yaml] hooks for this clone
+pre-commit install
+
+# optional sanity check across the whole tree
+pre-commit run --all-files
+```
+
+The same `git-secrets` scan runs in CI (`secrets-scan` job) against both the working tree and the full history, so local hooks are defense in depth, not the only gate.
+
+
 ## Project conventions
 
 - Keep changes small and reviewable.
