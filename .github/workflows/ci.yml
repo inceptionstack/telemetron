@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - v0.3.0-enrollment
   pull_request:
 
 concurrency:
@@ -27,6 +28,22 @@ jobs:
       - run: go vet ./...
       - run: go test -race -coverprofile=coverage.out ./...
       - run: go build -trimpath -ldflags "-X main.version=ci -X main.commit=${{ github.sha }} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" ./cmd/telemetron
+
+  # End-to-end integration test for the v0.3.0 anonymous enrollment flow.
+  # Gated behind a build tag so it is NOT part of the default `go test ./...`
+  # matrix run (which already carries -race + -coverprofile across 4 OS/Go
+  # combinations). Having the e2e run in its own job keeps signal clear when
+  # it fails: the enrollment flow broke end-to-end, as opposed to a unit
+  # regression.
+  test-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.2"
+      - run: go mod download
+      - run: go test -tags=e2e -race ./cmd/telemetron/
 
   lint:
     runs-on: ubuntu-latest
@@ -69,7 +86,7 @@ jobs:
     # Only after every other gate is green. Produces the snapshot tarballs
     # (linux/darwin + amd64/arm64) plus checksums, uploaded as a workflow
     # artifact so every passing commit has a downloadable build.
-    needs: [test, lint, govulncheck, goreleaser-check, secrets-scan]
+    needs: [test, test-e2e, lint, govulncheck, goreleaser-check, secrets-scan]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
