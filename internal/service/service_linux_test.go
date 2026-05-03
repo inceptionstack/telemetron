@@ -71,14 +71,48 @@ func (f *fakeFS) WalkDir(root string, fn filepath.WalkFunc) error {
 }
 
 func TestRenderUnitIncludesRequiredLines(t *testing.T) {
-	unit := renderUnit("/etc/telemetron/config.yaml")
-	require.Contains(t, unit, "User=telemetron")
+	unit := renderUnit("/etc/telemetron/config.yaml", "ec2-user", "ec2-user")
+	require.Contains(t, unit, "User=ec2-user")
+	require.Contains(t, unit, "Group=ec2-user")
 	require.Contains(t, unit, "ExecStart=/usr/local/bin/telemetron start --config /etc/telemetron/config.yaml")
 	require.Contains(t, unit, "ReadWritePaths=/var/lib/telemetron")
 	require.Contains(t, unit, "ProtectSystem=strict")
 }
 
+func TestResolveRunAsUserPrefersExplicit(t *testing.T) {
+	s := &linuxService{}
+	t.Setenv("SUDO_USER", "roy")
+	u, err := s.resolveRunAsUser("alice")
+	require.NoError(t, err)
+	require.Equal(t, "alice", u)
+}
+
+func TestResolveRunAsUserFallsBackToSudoUser(t *testing.T) {
+	s := &linuxService{}
+	t.Setenv("SUDO_USER", "roy")
+	u, err := s.resolveRunAsUser("")
+	require.NoError(t, err)
+	require.Equal(t, "roy", u)
+}
+
+func TestResolveRunAsUserFallsBackToSystemUser(t *testing.T) {
+	s := &linuxService{}
+	t.Setenv("SUDO_USER", "")
+	u, err := s.resolveRunAsUser("")
+	require.NoError(t, err)
+	require.Equal(t, systemUser, u)
+}
+
+func TestResolveRunAsUserIgnoresSudoUserRoot(t *testing.T) {
+	s := &linuxService{}
+	t.Setenv("SUDO_USER", "root")
+	u, err := s.resolveRunAsUser("")
+	require.NoError(t, err)
+	require.Equal(t, systemUser, u)
+}
+
 func TestInstallChownsTokenAndStateDir(t *testing.T) {
+	t.Setenv("SUDO_USER", "") // force fallback to system "telemetron" user
 	fs := &fakeFS{
 		data: map[string][]byte{
 			"/tmp/telemetron": []byte("bin"),
@@ -99,7 +133,10 @@ func TestInstallChownsTokenAndStateDir(t *testing.T) {
 			return []byte("telemetron:x:1001:1001::/var/lib/telemetron:/usr/sbin/nologin"), nil
 		},
 		lookupUser: func(username string) (*user.User, error) {
-			return &user.User{Uid: "1001", Gid: "1001"}, nil
+			return &user.User{Uid: "1001", Gid: "1001", Username: username}, nil
+		},
+		lookupGroup: func(gid string) (*user.Group, error) {
+			return &user.Group{Gid: gid, Name: "telemetron"}, nil
 		},
 		executable: func() (string, error) { return "/tmp/telemetron", nil },
 		uid:        func() int { return 0 },
@@ -122,4 +159,85 @@ func TestInstallChownsTokenAndStateDir(t *testing.T) {
 	require.Contains(t, fs.chowns, "/etc/telemetron/token")
 	require.Contains(t, fs.chowns, "/var/lib/telemetron")
 	require.Contains(t, fs.chowns, "/var/lib/telemetron/existing.json")
+	// Unit must be pinned to the system user when SUDO_USER is unset.
+	unit := string(fs.data["/etc/systemd/system/telemetron.service"])
+	require.Contains(t, unit, "User=telemetron")
+}
+
+func TestInstallAsUsesSudoUserByDefault(t *testing.T) {
+	t.Setenv("SUDO_USER", "roy")
+	fs := &fakeFS{
+		data:  map[string][]byte{"/tmp/telemetron": []byte("bin")},
+		walks: map[string][]string{"/var/lib/telemetron": {"/var/lib/telemetron"}},
+	}
+	lookupCalls := []string{}
+	svc := &linuxService{
+		fs: fs,
+		run: func(name string, args ...string) error {
+			t.Fatalf("unexpected command when run-as user already exists: %s %v", name, args)
+			return nil
+		},
+		runOutput: func(name string, args ...string) ([]byte, error) {
+			return nil, nil
+		},
+		lookupUser: func(username string) (*user.User, error) {
+			lookupCalls = append(lookupCalls, username)
+			return &user.User{Uid: "1000", Gid: "1000", Username: username}, nil
+		},
+		lookupGroup: func(gid string) (*user.Group, error) {
+			return &user.Group{Gid: gid, Name: "roy"}, nil
+		},
+		executable: func() (string, error) { return "/tmp/telemetron", nil },
+		uid:        func() int { return 0 },
+	}
+	cfg := config.Config{
+		Mode:       "testmode",
+		Endpoint:   "https://example.test/v1/metrics",
+		TokenFile:  "/etc/telemetron/token",
+		FilePath:   "/etc/telemetron/config.yaml",
+		Paths:      config.Paths{StateDir: "/var/lib/telemetron"},
+		Collectors: map[string]any{"testmode": map[string]any{"session_dir": "/tmp/s"}},
+	}
+
+	require.NoError(t, svc.Install(cfg, "secret"))
+
+	unit := string(fs.data["/etc/systemd/system/telemetron.service"])
+	require.Contains(t, unit, "User=roy")
+	require.Contains(t, unit, "Group=roy")
+	require.Contains(t, lookupCalls, "roy")
+}
+
+func TestInstallAsExplicitOverride(t *testing.T) {
+	t.Setenv("SUDO_USER", "roy")
+	fs := &fakeFS{
+		data:  map[string][]byte{"/tmp/telemetron": []byte("bin")},
+		walks: map[string][]string{"/var/lib/telemetron": {"/var/lib/telemetron"}},
+	}
+	svc := &linuxService{
+		fs:        fs,
+		run:       func(name string, args ...string) error { return nil },
+		runOutput: func(name string, args ...string) ([]byte, error) { return nil, nil },
+		lookupUser: func(username string) (*user.User, error) {
+			return &user.User{Uid: "1234", Gid: "1234", Username: username}, nil
+		},
+		lookupGroup: func(gid string) (*user.Group, error) {
+			return &user.Group{Gid: gid, Name: "alice"}, nil
+		},
+		executable: func() (string, error) { return "/tmp/telemetron", nil },
+		uid:        func() int { return 0 },
+	}
+	cfg := config.Config{
+		Mode:       "testmode",
+		Endpoint:   "https://example.test/v1/metrics",
+		TokenFile:  "/etc/telemetron/token",
+		FilePath:   "/etc/telemetron/config.yaml",
+		Paths:      config.Paths{StateDir: "/var/lib/telemetron"},
+		Collectors: map[string]any{"testmode": map[string]any{"session_dir": "/tmp/s"}},
+	}
+
+	require.NoError(t, svc.InstallAs(cfg, "secret", "alice"))
+
+	unit := string(fs.data["/etc/systemd/system/telemetron.service"])
+	require.Contains(t, unit, "User=alice")
+	require.Contains(t, unit, "Group=alice")
 }

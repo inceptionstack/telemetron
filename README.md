@@ -72,6 +72,11 @@ sudo chmod 0400 /etc/telemetron/token
 # telemetron install reads the token from /etc/telemetron/token by default.
 # Avoid passing --token on the CLI in production; it leaks into shell
 # history and the kernel process list.
+#
+# By default the systemd unit runs as $SUDO_USER (the account that typed
+# `sudo telemetron install`). That way the collector can read session files
+# under $HOME/.openclaw without extra ACLs, since that dir is usually 0700.
+# Override with --run-as <user> if you want a different account.
 sudo telemetron install \
   --endpoint https://your-otlp-gateway.example.com/v1/metrics \
   --mode openclaw \

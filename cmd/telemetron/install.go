@@ -21,6 +21,7 @@ func newInstallCmd() *cobra.Command {
 	var tier string
 	var sessionDir string
 	var insecureEndpoint bool
+	var runAs string
 
 	cmd := &cobra.Command{
 		Use:   "install",
@@ -71,7 +72,7 @@ func newInstallCmd() *cobra.Command {
 			}
 
 			svc := service.New()
-			if err := svc.Install(cfg, token); err != nil {
+			if err := svc.InstallAs(cfg, token, runAs); err != nil {
 				if errors.Is(err, service.ErrUnsupported) {
 					return err
 				}
@@ -96,6 +97,7 @@ func newInstallCmd() *cobra.Command {
 	cmd.Flags().StringVar(&tier, "tier", "", "internal|production|development|staging|unknown (config: declared.tier)")
 	cmd.Flags().StringVar(&sessionDir, "session-dir", "", "session directory (config: <mode>.session_dir)")
 	cmd.Flags().BoolVar(&insecureEndpoint, "insecure-endpoint", false, "allow http:// endpoints for testing only (config: insecure_endpoint)")
+	cmd.Flags().StringVar(&runAs, "run-as", "", "OS user the systemd unit runs as (default: $SUDO_USER when invoked via sudo, else the system 'telemetron' user)")
 	return cmd
 }
 

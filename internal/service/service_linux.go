@@ -47,12 +47,13 @@ func (osFS) Chmod(path string, mode os.FileMode) error       { return os.Chmod(p
 func (osFS) WalkDir(root string, fn filepath.WalkFunc) error { return filepath.Walk(root, fn) }
 
 type linuxService struct {
-	fs         filesystem
-	run        func(name string, args ...string) error
-	runOutput  func(name string, args ...string) ([]byte, error)
-	lookupUser func(username string) (*user.User, error)
-	executable func() (string, error)
-	uid        func() int
+	fs          filesystem
+	run         func(name string, args ...string) error
+	runOutput   func(name string, args ...string) ([]byte, error)
+	lookupUser  func(username string) (*user.User, error)
+	lookupGroup func(gid string) (*user.Group, error)
+	executable  func() (string, error)
+	uid         func() int
 }
 
 func newService() Service {
@@ -67,22 +68,46 @@ func newService() Service {
 		runOutput: func(name string, args ...string) ([]byte, error) {
 			return exec.Command(name, args...).Output()
 		},
-		lookupUser: user.Lookup,
-		executable: os.Executable,
-		uid:        os.Geteuid,
+		lookupUser:  user.Lookup,
+		lookupGroup: user.LookupGroupId,
+		executable:  os.Executable,
+		uid:         os.Geteuid,
 	}
 }
 
 func (s *linuxService) Install(cfg config.Config, token string) error {
+	return s.InstallAs(cfg, token, "")
+}
+
+// InstallAs installs the service and runs the unit as runAsUser. When
+// runAsUser is empty, the default is picked in this order:
+//
+//  1. $SUDO_USER (when invoked via sudo; this is the common path — the
+//     service runs as the human who typed the install command, so it can
+//     read their session files at $HOME/.openclaw/... without extra ACLs).
+//  2. A dedicated system "telemetron" user, which this call will create
+//     via `useradd --system` if it does not already exist.
+func (s *linuxService) InstallAs(cfg config.Config, token, runAsUser string) error {
 	if s.uid() != 0 {
 		return fmt.Errorf("this command must run as root")
 	}
-	if err := s.ensureUser(); err != nil {
-		return err
-	}
-	account, err := s.lookupUser("telemetron")
+
+	username, err := s.resolveRunAsUser(runAsUser)
 	if err != nil {
 		return err
+	}
+
+	// Only auto-create the user when the caller explicitly fell through to
+	// the system "telemetron" account. A typo like --run-as alic should not
+	// silently create a system user named "alic".
+	if username == systemUser {
+		if err := s.ensureSystemUser(); err != nil {
+			return err
+		}
+	}
+	account, err := s.lookupUser(username)
+	if err != nil {
+		return fmt.Errorf("run-as user %q does not exist: %w", username, err)
 	}
 	uid, err := strconv.Atoi(account.Uid)
 	if err != nil {
@@ -91,6 +116,12 @@ func (s *linuxService) Install(cfg config.Config, token string) error {
 	gid, err := strconv.Atoi(account.Gid)
 	if err != nil {
 		return err
+	}
+	groupname := account.Username
+	if s.lookupGroup != nil {
+		if g, gerr := s.lookupGroup(account.Gid); gerr == nil && g.Name != "" {
+			groupname = g.Name
+		}
 	}
 
 	if err := s.copySelf(); err != nil {
@@ -125,10 +156,22 @@ func (s *linuxService) Install(cfg config.Config, token string) error {
 	if err := s.fs.Chmod(cfg.TokenFile, 0o400); err != nil {
 		return err
 	}
-	if err := s.fs.WriteFile(unitPath, []byte(renderUnit(cfg.FilePath)), 0o644); err != nil {
+	if err := s.fs.WriteFile(unitPath, []byte(renderUnit(cfg.FilePath, username, groupname)), 0o644); err != nil {
 		return err
 	}
 	return s.chownRecursive(cfg.Paths.StateDir, uid, gid)
+}
+
+const systemUser = "telemetron"
+
+func (s *linuxService) resolveRunAsUser(explicit string) (string, error) {
+	if explicit != "" {
+		return explicit, nil
+	}
+	if sudoUser := strings.TrimSpace(os.Getenv("SUDO_USER")); sudoUser != "" && sudoUser != "root" {
+		return sudoUser, nil
+	}
+	return systemUser, nil
 }
 
 func (s *linuxService) EnableAndStart() error {
@@ -170,7 +213,7 @@ func (s *linuxService) ProbeStatus() (Status, error) {
 	return Status{Installed: installed, Active: active, Detail: detail}, nil
 }
 
-func renderUnit(configPath string) string {
+func renderUnit(configPath, runAsUser, runAsGroup string) string {
 	return fmt.Sprintf(`[Unit]
 Description=telemetron OTLP metrics sidecar
 After=network-online.target
@@ -178,8 +221,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=telemetron
-Group=telemetron
+User=%s
+Group=%s
 ExecStart=/usr/local/bin/telemetron start --config %s
 Restart=on-failure
 RestartSec=10
@@ -194,7 +237,7 @@ StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
-`, configPath)
+`, runAsUser, runAsGroup, configPath)
 }
 
 func (s *linuxService) copySelf() error {
@@ -212,20 +255,20 @@ func (s *linuxService) copySelf() error {
 	return s.fs.WriteFile(binaryPath, srcData, 0o755)
 }
 
-func (s *linuxService) ensureUser() error {
-	if _, err := s.runOutput("getent", "passwd", "telemetron"); err == nil {
+func (s *linuxService) ensureSystemUser() error {
+	if _, err := s.runOutput("getent", "passwd", systemUser); err == nil {
 		return nil
 	}
 	if _, err := exec.LookPath("useradd"); err != nil {
-		return fmt.Errorf("useradd is required to create the telemetron system user")
+		return fmt.Errorf("useradd is required to create the %s system user", systemUser)
 	}
 	shells := []string{"/usr/sbin/nologin", "/sbin/nologin", "/bin/false"}
 	for _, shell := range shells {
-		if err := s.run("useradd", "--system", "--home-dir", "/var/lib/telemetron", "--shell", shell, "telemetron"); err == nil {
+		if err := s.run("useradd", "--system", "--home-dir", "/var/lib/telemetron", "--shell", shell, systemUser); err == nil {
 			return nil
 		}
 	}
-	return fmt.Errorf("failed to create telemetron system user with useradd")
+	return fmt.Errorf("failed to create %s system user with useradd", systemUser)
 }
 
 func (s *linuxService) chownRecursive(root string, uid, gid int) error {

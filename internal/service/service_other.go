@@ -12,7 +12,8 @@ func newService() Service {
 	return unsupportedService{}
 }
 
-func (unsupportedService) Install(config.Config, string) error { return ErrUnsupported }
+func (unsupportedService) Install(config.Config, string) error            { return ErrUnsupported }
+func (unsupportedService) InstallAs(config.Config, string, string) error   { return ErrUnsupported }
 func (unsupportedService) Uninstall() error                    { return ErrUnsupported }
 func (unsupportedService) EnableAndStart() error               { return ErrUnsupported }
 func (unsupportedService) ProbeStatus() (Status, error) {

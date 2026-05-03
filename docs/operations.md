@@ -10,6 +10,31 @@ These notes cover routine Linux service operation for `telemetron`.
 - State directory: `/var/lib/telemetron`
 - Systemd drop-ins: `/etc/systemd/system/telemetron.service.d/*.conf`
 
+## Run-as user
+
+The systemd unit's `User=`/`Group=` are chosen at install time:
+
+1. `--run-as <user>` on the install command, when set, always wins.
+2. Otherwise, `telemetron install` uses `$SUDO_USER` — i.e. the user who
+   typed `sudo telemetron install` — as long as it is not `root`. This is
+   the default path and is what you want when the collector needs to read
+   session files under that user's `$HOME` (for example
+   `$HOME/.openclaw/agents/main/sessions`). The user's home directory is
+   typically `0700`, so running the service as a different account would
+   silently produce an empty scan.
+3. If `$SUDO_USER` is unset (e.g. you are already root in a shell rather
+   than using sudo), `telemetron install` falls back to a dedicated
+   `telemetron` system user, creating it with `useradd --system` if it
+   does not exist.
+
+Ownership of `/etc/telemetron/token` and everything under
+`/var/lib/telemetron` is then `chown`ed to that user so the service can
+read its token and durable offsets.
+
+To change the run-as user later, re-run `sudo telemetron install --run-as <user> …`
+or edit `User=`/`Group=` in the unit via a drop-in file and `chown` the
+state/token accordingly.
+
 Example drop-in workflow:
 
 ```bash
@@ -43,14 +68,17 @@ sudo systemctl restart systemd-journald
 
 1. Write the new token to `/etc/telemetron/token`.
 2. Set mode `0400`.
-3. Ensure ownership matches the `telemetron` service user on Linux.
+3. Ensure ownership matches the service's run-as user (see above).
 4. Restart the service.
 
 Example:
 
 ```bash
 printf '%s\n' 'new-token' | sudo tee /etc/telemetron/token >/dev/null
-sudo chown telemetron:telemetron /etc/telemetron/token
+# Match the service's run-as user (check with:
+#   systemctl show telemetron.service --property=User --value )
+RUNAS=$(systemctl show telemetron.service --property=User --value)
+sudo chown "$RUNAS:$RUNAS" /etc/telemetron/token
 sudo chmod 0400 /etc/telemetron/token
 sudo systemctl restart telemetron
 ```

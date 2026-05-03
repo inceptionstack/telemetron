@@ -16,6 +16,10 @@ func (darwinService) Install(config.Config, string) error {
 	return ErrUnsupported
 }
 
+func (darwinService) InstallAs(config.Config, string, string) error {
+	return ErrUnsupported
+}
+
 func (darwinService) Uninstall() error {
 	return ErrUnsupported
 }

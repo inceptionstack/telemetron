@@ -18,6 +18,11 @@ type Status struct {
 
 type Service interface {
 	Install(cfg config.Config, token string) error
+	// InstallAs installs the service and runs the systemd unit as runAsUser.
+	// When runAsUser is empty, platform implementations pick a sensible
+	// default (Linux: $SUDO_USER when set, else the system "telemetron"
+	// user). Non-Linux platforms may return ErrUnsupported.
+	InstallAs(cfg config.Config, token, runAsUser string) error
 	Uninstall() error
 	EnableAndStart() error
 	ProbeStatus() (Status, error)

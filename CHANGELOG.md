@@ -7,6 +7,17 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Changed
+
+- `telemetron install` now defaults the systemd unit's `User=`/`Group=` to
+  `$SUDO_USER` (the account that typed `sudo telemetron install`) instead
+  of always creating a dedicated `telemetron` system user. This lets the
+  collector read session files under that user's `$HOME` (for example
+  `$HOME/.openclaw/agents/main/sessions`) without extra ACLs, because home
+  directories are typically `0700`. Override with `--run-as <user>`; when
+  `$SUDO_USER` is unset, falls back to the dedicated `telemetron` system
+  user as before.
+
 ## [0.2.0] - 2026-05-02
 
 ### Changed
