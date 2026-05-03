@@ -7,16 +7,51 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Added
+
+- **`telemetron setup` subcommand** — non-interactive-first reconciler that
+  auto-detects OpenClaw/Loki agents, resolves inputs from flags/env/
+  existing state, installs or updates the systemd unit, and verifies the
+  first flush before returning success. Interactive prompting is
+  available as a fallback only when stdin is a TTY and
+  `--non-interactive` was not passed. See `docs/setup-contract.md`.
+- **`--json` event stream for `setup`** (contract:
+  `telemetron.setup.v1`) — one line-delimited JSON event per lifecycle
+  phase, plus a final `setup.completed` / `setup.failed` envelope. Stable
+  error codes: `missing_required_input`, `ambiguous_agent`,
+  `token_read_failed`, `systemd_install_failed`, `service_start_failed`,
+  `health_check_failed`, `precondition_failed`, `detection_failed`,
+  `invalid_config`.
+- **`internal/agentdetect` package** — filesystem-only, network-free
+  agent detector (OpenClaw today, pluggable for future agents). Prefers
+  the `main` agent slot; flags ambiguity when multiple slots exist and
+  no `main` is present.
+- **`--token-file` on `telemetron install`** — reads the token from a
+  path instead of the CLI. The CLI form is never written to argv.
+- **`TELEMETRON_TOKEN_FILE` env var** — recognised by both `install` and
+  `setup`.
+
 ### Changed
 
-- `telemetron install` now defaults the systemd unit's `User=`/`Group=` to
-  `$SUDO_USER` (the account that typed `sudo telemetron install`) instead
-  of always creating a dedicated `telemetron` system user. This lets the
-  collector read session files under that user's `$HOME` (for example
-  `$HOME/.openclaw/agents/main/sessions`) without extra ACLs, because home
-  directories are typically `0700`. Override with `--run-as <user>`; when
-  `$SUDO_USER` is unset, falls back to the dedicated `telemetron` system
-  user as before.
+- `telemetron install` now delegates to a code path that shares
+  resolution logic with `setup`; behaviour is backwards compatible.
+- README quickstart leads with `telemetron setup` and demotes the
+  manual token/install dance to a "power users / CI" section.
+
+### Deprecated
+
+- `telemetron install --token <value>` — emits a runtime warning. Leaks
+  via shell history and `/proc/<pid>/cmdline`. Use `--token-file`,
+  `TELEMETRON_TOKEN`, or `telemetron setup` (with interactive hidden
+  prompt as fallback). The flag will be removed in a future minor
+  release.
+
+### Notes
+
+- The systemd unit still defaults `User=`/`Group=` to `$SUDO_USER` (or
+  the explicit `--run-as` user), falling back to the dedicated
+  `telemetron` system user only when `$SUDO_USER` is unset. This
+  behaviour is unchanged from the previous unreleased entry.
 
 ## [0.2.0] - 2026-05-02
 

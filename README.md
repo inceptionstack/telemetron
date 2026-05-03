@@ -60,33 +60,72 @@ Environment overrides:
 ## Quickstart
 
 After `install.sh` (or any of the alternatives above) puts `telemetron` on
-your `PATH`, wire it up to an OTLP/HTTP endpoint. Replace the token value,
-session directory, and endpoint for your environment.
+your `PATH`, use `telemetron setup` to wire it up. It auto-detects your
+agent, resolves sensible defaults, and verifies a first flush before
+reporting success.
+
+### Interactive (laptop, one-off)
+
+Drop the bearer token somewhere readable, then:
 
 ```bash
-sudo install -d -m 0755 /etc/telemetron
-printf '%s\n' 'replace-with-your-bearer-token' | sudo tee /etc/telemetron/token >/dev/null
-sudo chmod 0400 /etc/telemetron/token
-
-# telemetron install reads the token from /etc/telemetron/token by default.
-# Avoid passing --token on the CLI in production; it leaks into shell
-# history and the kernel process list.
-#
-# By default the systemd unit runs as $SUDO_USER (the account that typed
-# `sudo telemetron install`). That way the collector can read session files
-# under $HOME/.openclaw without extra ACLs, since that dir is usually 0700.
-# Override with --run-as <user> if you want a different account.
-sudo telemetron install \
+sudo telemetron setup \
   --endpoint https://your-otlp-gateway.example.com/v1/metrics \
-  --mode openclaw \
-  --session-dir "$HOME/.openclaw/agents/main/sessions" \
-  --deployment-id dev-laptop \
-  --tier development
-
-telemetron status
+  --token-file /path/to/your/token
 ```
 
-For macOS, run `telemetron start --config ~/.config/telemetron/config.yaml` directly or under `launchd`. See [docs/macos.md](docs/macos.md).
+What happens:
+
+1. Detects `~/.openclaw/agents/*/sessions` for the user who invoked `sudo`
+   (prefers `main` when present) and picks sensible `mode`, `session-dir`,
+   `run-as`, `deployment-id`, and `tier` defaults.
+2. Prints a summary of the resolved state and asks `Proceed? [Y/n]`.
+3. Installs the systemd unit, enables it, starts it, and waits for the
+   first successful flush before printing `telemetron installed — first
+   flush ok`.
+
+Re-running `telemetron setup` is always safe: same inputs → no-op; changed
+endpoint or token → in-place update + service restart.
+
+### Non-interactive (bundled installer, CI, image bake)
+
+`setup` is non-interactive-first. The same reconciler runs with zero
+prompts when stdin is not a TTY, or when `--non-interactive` is passed:
+
+```bash
+TELEMETRON_ENDPOINT="https://your-otlp-gateway.example.com/v1/metrics" \
+TELEMETRON_TOKEN_FILE=/run/secrets/telemetron-token \
+sudo telemetron setup --non-interactive --json --yes
+```
+
+`--json` emits one line-delimited JSON event per lifecycle phase on
+stdout, plus a final `setup.completed` or `setup.failed` envelope. The
+schema is stable (`telemetron.setup.v1`); see
+[docs/setup-contract.md](docs/setup-contract.md) for the full event list
+and error codes.
+
+Missing required inputs (`endpoint`, `token`) and ambiguous detection
+(more than one agent slot without `main`) fail fast with a structured
+error envelope — never silent fallbacks.
+
+### Low-level install (power users)
+
+`telemetron install` remains available for CI or tooling that already
+scripts against it. Prefer `setup` for everything else.
+
+```bash
+sudo telemetron install \
+  --endpoint https://your-otlp-gateway.example.com/v1/metrics \
+  --token-file /etc/telemetron/token \
+  --mode openclaw \
+  --session-dir "$HOME/.openclaw/agents/main/sessions"
+```
+
+The `--token` flag is deprecated (leaks via `ps` and shell history) and
+will be removed in a future release; use `--token-file` instead.
+
+For macOS, run `telemetron start --config ~/.config/telemetron/config.yaml`
+directly or under `launchd`. See [docs/macos.md](docs/macos.md).
 
 ## Uninstall
 
@@ -96,8 +135,9 @@ If you installed via the one-line installer, remove the binary:
 rm -f "$HOME/.local/bin/telemetron"
 ```
 
-If you installed the systemd service via `telemetron install`, remove it first
-(the config and state files are left on disk for safety):
+If you installed the systemd service (via `telemetron setup` or
+`telemetron install`), remove it first (the config and state files are
+left on disk for safety):
 
 ```bash
 sudo telemetron uninstall               # stop + disable + remove the unit

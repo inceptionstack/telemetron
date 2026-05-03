@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
 
 	"github.com/inceptionstack/telemetron/internal/config"
 	"github.com/inceptionstack/telemetron/internal/service"
@@ -16,6 +17,7 @@ import (
 func newInstallCmd() *cobra.Command {
 	var endpoint string
 	var token string
+	var tokenFile string
 	var mode string
 	var deploymentID string
 	var tier string
@@ -25,8 +27,19 @@ func newInstallCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "install",
-		Short: "Install the service and start it",
+		Short: "Install the service and start it (low-level; prefer `telemetron setup`)",
+		Long: `Install the service and start it.
+
+This is the low-level primitive. For most users (and all bundled
+installers), prefer 'telemetron setup' — it auto-detects the agent,
+resolves inputs from flags/env, and verifies a first flush before
+reporting success.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if token != "" {
+				fmt.Fprintln(cmd.ErrOrStderr(),
+					"DEPRECATED: --token leaks via shell history and /proc/<pid>/cmdline. "+
+						"Use --token-file, TELEMETRON_TOKEN, or `telemetron setup` (interactive prompt).")
+			}
 			if runtime.GOOS == "darwin" {
 				fmt.Fprintln(cmd.ErrOrStderr(), "telemetron install is not supported on macOS.")
 				fmt.Fprintln(cmd.ErrOrStderr(), "You can still run `telemetron start --config /path/to/config.yaml` directly or under launchd. See docs/macos.md.")
@@ -59,8 +72,22 @@ func newInstallCmd() *cobra.Command {
 			}
 			cfg.Collectors[cfg.Mode] = resolvedRaw
 
+			if token == "" && tokenFile != "" {
+				data, err := os.ReadFile(tokenFile)
+				if err != nil {
+					return fmt.Errorf("read --token-file %s: %w", tokenFile, err)
+				}
+				token = strings.TrimSpace(string(data))
+			}
 			if token == "" {
 				token = os.Getenv("TELEMETRON_TOKEN")
+			}
+			if token == "" && os.Getenv("TELEMETRON_TOKEN_FILE") != "" {
+				data, err := os.ReadFile(os.Getenv("TELEMETRON_TOKEN_FILE"))
+				if err != nil {
+					return fmt.Errorf("read TELEMETRON_TOKEN_FILE: %w", err)
+				}
+				token = strings.TrimSpace(string(data))
 			}
 			if token == "" {
 				if existing, err := cfg.Token(); err == nil {
@@ -68,7 +95,7 @@ func newInstallCmd() *cobra.Command {
 				}
 			}
 			if token == "" {
-				return fmt.Errorf("token is required via --token, TELEMETRON_TOKEN, or existing token file")
+				return fmt.Errorf("token is required via --token-file, TELEMETRON_TOKEN, TELEMETRON_TOKEN_FILE, or existing token file")
 			}
 
 			svc := service.New()
@@ -91,7 +118,8 @@ func newInstallCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&endpoint, "endpoint", "", "OTLP endpoint (env: TELEMETRON_ENDPOINT, config: endpoint)")
-	cmd.Flags().StringVar(&token, "token", "", "bearer token (env: TELEMETRON_TOKEN, written to token_file)")
+	cmd.Flags().StringVar(&token, "token", "", "DEPRECATED: bearer token (leaks via ps/shell history); use --token-file instead")
+	cmd.Flags().StringVar(&tokenFile, "token-file", "", "path to a file containing the bearer token (env: TELEMETRON_TOKEN_FILE)")
 	cmd.Flags().StringVar(&mode, "mode", "", "collection mode (env: TELEMETRON_MODE, config: mode)")
 	cmd.Flags().StringVar(&deploymentID, "deployment-id", "", "deployment id (config: declared.deployment_id)")
 	cmd.Flags().StringVar(&tier, "tier", "", "internal|production|development|staging|unknown (config: declared.tier)")

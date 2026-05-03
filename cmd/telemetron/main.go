@@ -34,7 +34,7 @@ func newRootCmd() *cobra.Command {
 	}
 	cmd.PersistentFlags().StringVar(&configPath, "config", "", "config file path (env: TELEMETRON_CONFIG, default: platform-specific)")
 	cmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "trace|debug|info|warn|error (env: TELEMETRON_LOG_LEVEL, config: log_level)")
-	cmd.AddCommand(newInstallCmd(), newUninstallCmd(), newStartCmd(), newStatusCmd(), newVersionCmd())
+	cmd.AddCommand(newInstallCmd(), newSetupCmd(), newUninstallCmd(), newStartCmd(), newStatusCmd(), newVersionCmd())
 	return cmd
 }
 

@@ -1,0 +1,140 @@
+// SPDX-License-Identifier: Apache-2.0
+
+package main
+
+import (
+	"os"
+	"testing"
+
+	"github.com/inceptionstack/telemetron/internal/agentdetect"
+)
+
+// These tests target the pure-resolution path: flags + env + detection
+// merge into resolvedSetup with a correct missing[] list. Actual install
+// and health verification are covered by internal/service tests, which
+// mock the filesystem and systemd.
+
+func TestResolveInputs_DetectionFillsDefaults(t *testing.T) {
+	resetEnv(t)
+	t.Setenv("TELEMETRON_CONFIG", "/dev/null")
+	t.Setenv("TELEMETRON_ENDPOINT", "https://otlp.example.com/v1/metrics")
+	t.Setenv("TELEMETRON_TOKEN", "abc")
+
+	det := agentdetect.Detection{
+		Mode:       "openclaw",
+		SessionDir: "/home/dev/.openclaw/agents/main/sessions",
+		RunAsUser:  "dev",
+		AgentName:  "main",
+	}
+	f := &setupFlags{nonInteractive: true}
+	r, missing, err := resolveInputs(f, det)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A host-local /etc/telemetron/token may satisfy the token check; we
+	// cannot rely on missing being empty. Endpoint must be resolved from
+	// the env var.
+	if contains(missing, "endpoint") {
+		t.Errorf("endpoint should be resolved, got missing=%+v", missing)
+	}
+	if r.endpoint != "https://otlp.example.com/v1/metrics" {
+		t.Errorf("endpoint mismatch: %q", r.endpoint)
+	}
+	if r.mode != "openclaw" {
+		t.Errorf("mode: want openclaw, got %q", r.mode)
+	}
+	if r.sessionDir != det.SessionDir {
+		t.Errorf("session_dir: want %q, got %q", det.SessionDir, r.sessionDir)
+	}
+	if !startsWithLokiPrefix(r.deploymentID) {
+		t.Errorf("deployment id default should start with 'loki@' or 'loki-': got %q", r.deploymentID)
+	}
+	if r.tier == "" {
+		t.Errorf("tier should be inferred, got empty")
+	}
+}
+
+func TestResolveInputs_FlagOverridesWin(t *testing.T) {
+	resetEnv(t)
+	t.Setenv("TELEMETRON_CONFIG", "/dev/null")
+
+	f := &setupFlags{
+		endpoint:     "https://flag.example/v1/metrics",
+		tokenFile:    "/tmp/nonexistent-token-for-test",
+		mode:         "openclaw",
+		sessionDir:   "/custom/sessions",
+		deploymentID: "my-deployment",
+		tier:         "production",
+		runAs:        "someone",
+	}
+	det := agentdetect.Detection{
+		Mode:       "openclaw",
+		SessionDir: "/default/sessions",
+		RunAsUser:  "default-user",
+	}
+	r, _, err := resolveInputs(f, det)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.endpoint != f.endpoint {
+		t.Errorf("endpoint: want %q, got %q", f.endpoint, r.endpoint)
+	}
+	if r.sessionDir != "/custom/sessions" {
+		t.Errorf("session_dir override lost: %q", r.sessionDir)
+	}
+	if r.deploymentID != "my-deployment" {
+		t.Errorf("deployment_id override lost: %q", r.deploymentID)
+	}
+	if r.tier != "production" {
+		t.Errorf("tier override lost: %q", r.tier)
+	}
+}
+
+func TestDefaultDeploymentID(t *testing.T) {
+	if got := defaultDeploymentID("main"); !startsWithLokiPrefix(got) {
+		t.Errorf("want 'loki@...', got %q", got)
+	}
+	if got := defaultDeploymentID("other"); !startsWithLokiPrefix(got) {
+		t.Errorf("want 'loki-<agent>@...', got %q", got)
+	}
+}
+
+func TestHintForMissing(t *testing.T) {
+	h := hintForMissing([]string{"endpoint", "token"})
+	if h == "" {
+		t.Fatalf("empty hint")
+	}
+}
+
+// --- helpers ------------------------------------------------------------
+
+func resetEnv(t *testing.T) {
+	t.Helper()
+	for _, k := range []string{
+		"TELEMETRON_ENDPOINT", "TELEMETRON_TOKEN", "TELEMETRON_TOKEN_FILE",
+		"TELEMETRON_MODE", "TELEMETRON_SESSION_DIR", "TELEMETRON_RUN_AS",
+		"TELEMETRON_DEPLOYMENT_ID", "TELEMETRON_TIER",
+		"SUDO_USER",
+	} {
+		t.Setenv(k, "")
+	}
+}
+
+func contains(s []string, v string) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
+func startsWithLokiPrefix(s string) bool {
+	if len(s) < 5 {
+		return false
+	}
+	return s[:5] == "loki@" || s[:5] == "loki-"
+}
+
+// Keep HOME/user import-free.
+var _ = os.Getenv
