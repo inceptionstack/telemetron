@@ -17,6 +17,7 @@ import (
 	"github.com/inceptionstack/telemetron/internal/config"
 	"github.com/inceptionstack/telemetron/internal/service"
 	"github.com/inceptionstack/telemetron/internal/setupevents"
+	"github.com/inceptionstack/telemetron/internal/status"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -27,6 +28,9 @@ var (
 	findOpenClawMainCandidates = agentdetect.FindOpenClawMainCandidates
 	setupServicePrecondition   = service.SetupPrecondition
 	newSetupService            = service.New
+	readSetupStatus            = func() (status.Snapshot, error) {
+		return status.New("/var/lib/telemetron/status.json").Read()
+	}
 )
 
 const unresolvedRootSessionHint = "cannot resolve session-dir under UID 0 with no $SUDO_USER set.\nPass --run-as <user> --session-dir <path>, or set TELEMETRON_RUN_AS /\nTELEMETRON_SESSION_DIR."
@@ -614,19 +618,19 @@ func configStateHash(configData, tokenData []byte) [32]byte {
 // status store is already the source of truth for `telemetron status`.
 func verifyFirstFlush(e *setupEmitter, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
+	var last status.Snapshot
 	for {
-		// Existing status.json check. We do not hard-require it because
-		// tests may mock the service; absence after 30s is a warning, not
-		// a hard failure, but we still surface it as health_check_failed.
-		if statusHealthy() {
+		snapshot, ok := statusHealthy()
+		if ok {
 			return nil
 		}
+		last = snapshot
 		if !time.Now().Before(deadline) {
 			break
 		}
 		time.Sleep(time.Second)
 	}
-	return fmt.Errorf("no successful flush observed within %s", timeout)
+	return fmt.Errorf("no successful flush observed within %s%s", timeout, formatLastHTTPResponse(last))
 }
 
 func resolveHealthTimeout(f *setupFlags) (time.Duration, error) {
@@ -644,20 +648,25 @@ func resolveHealthTimeout(f *setupFlags) (time.Duration, error) {
 	return timeout, nil
 }
 
-func statusHealthy() bool {
-	data, err := os.ReadFile("/var/lib/telemetron/status.json")
+func statusHealthy() (status.Snapshot, bool) {
+	snapshot, err := readSetupStatus()
 	if err != nil {
-		return false
+		return status.Snapshot{}, false
 	}
-	// Very lax: any JSON object with a "last_flush_ok" flag true passes.
-	var payload map[string]any
-	if err := json.Unmarshal(data, &payload); err != nil {
-		return false
+	if !snapshot.LastFlushAt.IsZero() {
+		return snapshot, true
 	}
-	if ok, _ := payload["last_flush_ok"].(bool); ok {
-		return true
+	return snapshot, false
+}
+
+func formatLastHTTPResponse(snapshot status.Snapshot) string {
+	if snapshot.LastHTTPStatus == 0 && snapshot.LastHTTPBody == "" {
+		return ""
 	}
-	return false
+	if snapshot.LastHTTPBody == "" {
+		return fmt.Sprintf("; last HTTP response: %d", snapshot.LastHTTPStatus)
+	}
+	return fmt.Sprintf("; last HTTP response: %d %s", snapshot.LastHTTPStatus, snapshot.LastHTTPBody)
 }
 
 // --- prompt helpers ------------------------------------------------------

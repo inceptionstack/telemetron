@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	colmetricpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
@@ -95,4 +96,20 @@ func TestExporterTrimsTokenWhitespace(t *testing.T) {
 				"exporter must strip surrounding whitespace / BOM / CRLF from bearer token")
 		})
 	}
+}
+
+func TestExporterSummarizesResponseBody(t *testing.T) {
+	t.Parallel()
+
+	body := strings.Repeat("x", 250)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, body)
+	}))
+	defer server.Close()
+
+	exporter := NewExporter(server.URL, "token", nil, server.Client())
+	resp, err := exporter.Export(context.Background(), []Point{{Name: "pack.tool.call", Count: 1}})
+	require.NoError(t, err)
+	require.Len(t, resp.Body, 200)
+	require.Equal(t, body[:200], resp.Body)
 }

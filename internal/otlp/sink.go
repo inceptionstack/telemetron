@@ -83,7 +83,7 @@ func (s *Sink) Flush(ctx context.Context) (FlushResult, error) {
 	resp, err := s.export.Export(ctx, points)
 	if err != nil {
 		s.logger.Warn("export failed", slog.String("error", err.Error()))
-		s.recordDrop(resp.StatusCode)
+		s.recordDrop(resp.StatusCode, resp.Body)
 		return FlushResult{MetricCount: len(points), Dropped: true, DroppedTotal: s.dropped}, err
 	}
 
@@ -95,7 +95,7 @@ func (s *Sink) Flush(ctx context.Context) (FlushResult, error) {
 	}
 
 	if resp.StatusCode == httpStatusUnauthorized || resp.StatusCode == httpStatusForbidden {
-		s.recordDrop(resp.StatusCode)
+		s.recordDrop(resp.StatusCode, resp.Body)
 		result.AuthFailure = true
 		result.Dropped = true
 		result.DroppedTotal = s.dropped
@@ -103,7 +103,7 @@ func (s *Sink) Flush(ctx context.Context) (FlushResult, error) {
 		return result, fmt.Errorf("export rejected: %d", resp.StatusCode)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		s.recordDrop(resp.StatusCode)
+		s.recordDrop(resp.StatusCode, resp.Body)
 		result.Dropped = true
 		result.DroppedTotal = s.dropped
 		s.logger.Warn("http export failure", slog.Int("status", resp.StatusCode), slog.String("body", resp.Body))
@@ -114,6 +114,7 @@ func (s *Sink) Flush(ctx context.Context) (FlushResult, error) {
 	s.snap.LastFlushMetric = len(points)
 	s.snap.LastFlushBytes = resp.Bytes
 	s.snap.LastHTTPStatus = resp.StatusCode
+	s.snap.LastHTTPBody = resp.Body
 	_ = s.status.Write(s.snap)
 	s.logger.Info("flush",
 		slog.String("event", "flush"),
@@ -126,10 +127,11 @@ func (s *Sink) Flush(ctx context.Context) (FlushResult, error) {
 	return result, nil
 }
 
-func (s *Sink) recordDrop(statusCode int) {
+func (s *Sink) recordDrop(statusCode int, body string) {
 	s.dropped++
 	s.snap.DroppedBatches = s.dropped
 	s.snap.LastHTTPStatus = statusCode
+	s.snap.LastHTTPBody = body
 	_ = s.status.Write(s.snap)
 }
 

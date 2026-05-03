@@ -15,6 +15,7 @@ type Snapshot struct {
 	LastFlushMetric int       `json:"last_flush_metric"`
 	LastFlushBytes  int       `json:"last_flush_bytes"`
 	LastHTTPStatus  int       `json:"last_http_status"`
+	LastHTTPBody    string    `json:"last_http_body,omitempty"`
 	LastHeartbeatAt time.Time `json:"last_heartbeat_at"`
 	DroppedBatches  int       `json:"dropped_batches"`
 }

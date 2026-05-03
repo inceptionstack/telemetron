@@ -12,6 +12,7 @@ import (
 
 	"github.com/inceptionstack/telemetron/internal/agentdetect"
 	"github.com/inceptionstack/telemetron/internal/service"
+	"github.com/inceptionstack/telemetron/internal/status"
 )
 
 // These tests target the pure-resolution path: flags + env + detection
@@ -211,6 +212,28 @@ func TestRunSetup_FailsPreconditionWhenSystemdMissing(t *testing.T) {
 		t.Fatal("expected precondition failure")
 	}
 	if err.Error() != "precondition_failed: telemetron setup requires systemd; detected init: bash. Use 'telemetron install' + manual service management." {
+		t.Fatalf("unexpected error: %q", err)
+	}
+}
+
+func TestVerifyFirstFlushIncludesLastHTTPResponse(t *testing.T) {
+	prevReadStatus := readSetupStatus
+	t.Cleanup(func() {
+		readSetupStatus = prevReadStatus
+	})
+
+	readSetupStatus = func() (status.Snapshot, error) {
+		return status.Snapshot{
+			LastHTTPStatus: 403,
+			LastHTTPBody:   "forbidden_token_invalid",
+		}, nil
+	}
+
+	err := verifyFirstFlush(&setupEmitter{}, 0)
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if !strings.Contains(err.Error(), "last HTTP response: 403 forbidden_token_invalid") {
 		t.Fatalf("unexpected error: %q", err)
 	}
 }
