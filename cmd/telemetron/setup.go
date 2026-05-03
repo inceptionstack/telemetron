@@ -495,7 +495,11 @@ func renderSummary(r resolvedSetup) string {
 	fmt.Fprintf(&b, "  deployment_id: %s\n", r.deploymentID)
 	fmt.Fprintf(&b, "  tier:          %s\n", r.tier)
 	if r.tokenFile != "" {
-		fmt.Fprintf(&b, "  token file:    %s (copied to /etc/telemetron/token, mode 0400)\n", r.tokenFile)
+		tokenSource := "copied to /etc/telemetron/token, mode 0400"
+		if secretID := strings.TrimSpace(os.Getenv("TELEMETRON_TOKEN_SECRET")); secretID != "" {
+			tokenSource += fmt.Sprintf("; source: TELEMETRON_TOKEN_SECRET=%s", secretID)
+		}
+		fmt.Fprintf(&b, "  token file:    %s (%s)\n", r.tokenFile, tokenSource)
 	} else if r.tokenFromEnv != "" {
 		b.WriteString("  token source:  TELEMETRON_TOKEN (env)\n")
 	} else {

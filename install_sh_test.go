@@ -28,4 +28,13 @@ func TestInstallScriptGuardsUnsetHomeAndAvoidsSetU(t *testing.T) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("install.sh syntax check failed: %v\n%s", err, out)
 	}
+
+	helpCmd := exec.Command("sh", "install.sh", "--help")
+	out, err := helpCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("install.sh --help failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "TELEMETRON_TOKEN_SECRET") {
+		t.Fatalf("install.sh --help must document TELEMETRON_TOKEN_SECRET, got %q", out)
+	}
 }

@@ -407,6 +407,17 @@ func TestHintForMissing(t *testing.T) {
 	}
 }
 
+func TestRenderSummaryIncludesSecretTokenSource(t *testing.T) {
+	t.Setenv("TELEMETRON_TOKEN_SECRET", "aws-secret-id")
+
+	summary := renderSummary(resolvedSetup{
+		tokenFile: "/etc/telemetron/token",
+	})
+	if !strings.Contains(summary, "TELEMETRON_TOKEN_SECRET=aws-secret-id") {
+		t.Fatalf("expected secret token source in summary, got %q", summary)
+	}
+}
+
 func TestResolveHealthTimeout_DefaultAndOverrides(t *testing.T) {
 	resetEnv(t)
 
