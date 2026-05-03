@@ -29,11 +29,15 @@
 # Auto-setup requires root (it writes /etc/telemetron/* and the systemd unit);
 # the script will re-exec itself under sudo if needed.
 
-set -eu
+set -e
 
 REPO="inceptionstack/telemetron"
 VERSION="${TELEMETRON_VERSION:-}"
-PREFIX_DEFAULT="$HOME/.local"
+HOME_DEFAULT="${HOME:-}"
+if [ -z "$HOME_DEFAULT" ]; then
+  HOME_DEFAULT="$(cd ~ 2>/dev/null && pwd || printf '/tmp')"
+fi
+PREFIX_DEFAULT="$HOME_DEFAULT/.local"
 PREFIX="${TELEMETRON_PREFIX:-$PREFIX_DEFAULT}"
 
 SETUP_ENDPOINT="${TELEMETRON_ENDPOINT:-}"
