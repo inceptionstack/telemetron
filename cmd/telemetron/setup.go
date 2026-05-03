@@ -35,6 +35,12 @@ var (
 
 const unresolvedRootSessionHint = "cannot resolve session-dir under UID 0 with no $SUDO_USER set.\nPass --run-as <user> --session-dir <path>, or set TELEMETRON_RUN_AS /\nTELEMETRON_SESSION_DIR."
 
+type rootSessionResolutionError struct{}
+
+func (rootSessionResolutionError) Error() string {
+	return unresolvedRootSessionHint
+}
+
 // setupFlags collects everything the setup command accepts. The same
 // struct is used for both non-interactive and interactive paths; prompts
 // only fire to fill unresolved required fields when a TTY is available
@@ -356,7 +362,7 @@ func resolveDetection(f *setupFlags) (agentdetect.Detection, []agentdetect.Candi
 			return agentdetect.Detection{}, nil, err
 		}
 		if len(candidates) != 1 {
-			return agentdetect.Detection{}, nil, errors.New(unresolvedRootSessionHint)
+			return agentdetect.Detection{}, nil, rootSessionResolutionError{}
 		}
 		return agentdetect.Detection{
 			Mode:       "openclaw",

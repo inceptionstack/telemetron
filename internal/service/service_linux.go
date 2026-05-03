@@ -33,6 +33,14 @@ var (
 	readInitProcess = os.ReadFile
 )
 
+type systemdPreconditionError struct {
+	init string
+}
+
+func (e systemdPreconditionError) Error() string {
+	return fmt.Sprintf("telemetron setup requires systemd; detected init: %s. Use 'telemetron install' + manual service management.", e.init)
+}
+
 type filesystem interface {
 	MkdirAll(path string, perm os.FileMode) error
 	ReadFile(path string) ([]byte, error)
@@ -88,7 +96,7 @@ func SetupPrecondition() error {
 	if hasSystemd() {
 		return nil
 	}
-	return fmt.Errorf("telemetron setup requires systemd; detected init: %s. Use 'telemetron install' + manual service management.", detectInit())
+	return systemdPreconditionError{init: detectInit()}
 }
 
 func hasSystemd() bool {
