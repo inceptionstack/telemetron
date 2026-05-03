@@ -69,7 +69,7 @@ jobs:
     # Only after every other gate is green. Produces the snapshot tarballs
     # (linux/darwin + amd64/arm64) plus checksums, uploaded as a workflow
     # artifact so every passing commit has a downloadable build.
-    needs: [test, lint, govulncheck, goreleaser-check, secrets-scan, gitleaks]
+    needs: [test, lint, govulncheck, goreleaser-check, secrets-scan]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
@@ -118,12 +118,18 @@ jobs:
       - name: Scan full history
         run: git secrets --scan-history
 
-  gitleaks:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # gitleaks-action disabled: the v2+ action requires a paid GITLEAKS_LICENSE
+  # secret for organization-owned repositories, and we already run git-secrets
+  # with repo-specific bearer-token patterns in the secrets-scan job above.
+  # Re-enable by restoring this job AND adding a GITLEAKS_LICENSE secret.
+  #
+  # gitleaks:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         fetch-depth: 0
+  #     - uses: gitleaks/gitleaks-action@v2
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #         GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}

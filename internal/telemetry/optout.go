@@ -6,16 +6,16 @@
 // signals, so a single opt-out disables both when telemetron is deployed
 // alongside lowkey:
 //
-//  Shared:
-//    DO_NOT_TRACK=1                    (https://consoledonottrack.com)
+//	Shared:
+//	  DO_NOT_TRACK=1                    (https://consoledonottrack.com)
 //
-//  telemetron-specific:
-//    TELEMETRON_TELEMETRY=0
-//    $HOME/.telemetron/telemetry-off
+//	telemetron-specific:
+//	  TELEMETRON_TELEMETRY=0
+//	  $HOME/.telemetron/telemetry-off
 //
-//  Lowkey-family (inherited when deployed via lowkey):
-//    LOWKEY_TELEMETRY=0
-//    $HOME/.lowkey/telemetry-off
+//	Lowkey-family (inherited when deployed via lowkey):
+//	  LOWKEY_TELEMETRY=0
+//	  $HOME/.lowkey/telemetry-off
 //
 // When any signal is present the exporter must not run: no config load,
 // no token read, no network sockets.
