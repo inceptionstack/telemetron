@@ -15,7 +15,7 @@ telemetron setup [flags]
 ```
 
 All flags, environment variables, and resolution rules are listed in
-[../docs/operations.md](operations.md) and `telemetron setup --help`.
+`telemetron setup --help` and [configuration.md](configuration.md).
 This file focuses on the parts that are guaranteed to remain stable.
 
 ## Non-interactive contract
@@ -31,7 +31,9 @@ Required inputs:
   is reconciling an already-installed `telemetron` and neither source is
   provided, the existing `/etc/telemetron/config.yaml` value is reused.
 - `token` — from `--token-file`, `$TELEMETRON_TOKEN_FILE`,
-  `$TELEMETRON_TOKEN`, or an existing `/etc/telemetron/token`.
+  `$TELEMETRON_TOKEN`, an existing `/etc/telemetron/token`, or
+  anonymous auto-enrollment (when no other token source is configured
+  and `TELEMETRON_NO_AUTO_ENROLL` is not set).
 
 Inferred inputs (never a missing-field error in non-interactive mode):
 
@@ -56,7 +58,7 @@ Event sequence on a successful first install:
 2. `config.resolved` — final resolved state (endpoint, mode, session_dir,
    deployment_id, tier, run_as).
 3. `token.loaded` — token resolved; includes `source`
-   (`token-file|env|existing`). The token value is never logged.
+   (`token-file|env|existing|auto-enroll`). The token value is never logged.
 4. `token.written` — token file materialised at its final path.
 5. `service.installed` — systemd unit file written.
 6. `service.started` — `systemctl enable --now` succeeded.
