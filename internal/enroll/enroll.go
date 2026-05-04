@@ -48,6 +48,7 @@ type EnrollRequest struct {
 	Arch              string
 	Source            string
 	TelemetronVersion string
+	Pack              string
 }
 
 type EnrollResponse struct {
@@ -100,6 +101,7 @@ func (c *Client) Enroll(ctx context.Context, req EnrollRequest) (EnrollResponse,
 		Arch:              req.Arch,
 		Source:            req.Source,
 		TelemetronVersion: req.TelemetronVersion,
+		Pack:              req.Pack,
 	})
 	if err != nil {
 		return EnrollResponse{}, fmt.Errorf("marshal enroll request: %w", err)
@@ -146,6 +148,7 @@ type enrollRequestPayload struct {
 	Arch              string `json:"arch"`
 	Source            string `json:"source"`
 	TelemetronVersion string `json:"telemetron_version"`
+	Pack              string `json:"pack"`
 }
 
 type enrollResponsePayload struct {

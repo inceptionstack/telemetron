@@ -118,6 +118,7 @@ func loadTokenOrEnroll(ctx context.Context, r resolvedSetup, cfg config.Config) 
 		Arch:              runtime.GOARCH,
 		Source:            "telemetron-standalone",
 		TelemetronVersion: version,
+		Pack:              cfg.Mode,
 	})
 	if err != nil {
 		if errors.Is(err, enroll.ErrConflict) {

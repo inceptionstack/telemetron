@@ -239,6 +239,7 @@ func validRequest() EnrollRequest {
 		Arch:              "amd64",
 		Source:            "telemetron-standalone",
 		TelemetronVersion: "0.3.0",
+		Pack:              "openclaw",
 	}
 }
 
