@@ -8,7 +8,8 @@
     "arch",
     "source",
     "telemetron_version",
-    "pack"
+    "pack",
+    "tier"
   ],
   "required_string_keys": [
     "install_id",

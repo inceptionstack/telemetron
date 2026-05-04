@@ -211,6 +211,7 @@ func (s *e2eBackendState) handleEnroll(t *testing.T, w http.ResponseWriter, r *h
 		Source            string `json:"source"`
 		TelemetronVersion string `json:"telemetron_version"`
 		Pack              string `json:"pack"`
+		Tier              string `json:"tier"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode enroll request: %v", err)
