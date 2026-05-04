@@ -453,6 +453,9 @@ func resolveInputs(f *setupFlags, d agentdetect.Detection) (resolvedSetup, []str
 		r.deploymentID = defaultDeploymentID(d.AgentName)
 	}
 	if r.tier == "" {
+		r.tier = readInstallerInfo().Tier
+	}
+	if r.tier == "" {
 		r.tier = inferTier()
 	}
 

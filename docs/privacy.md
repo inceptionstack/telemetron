@@ -12,6 +12,7 @@
 - `source`
 - `telemetron_version`
 - `pack` (the configured mode, e.g. `openclaw`)
+- `tier` (deployment tier, e.g. `internal` or `production`)
 
 ## What we send at flush time
 
