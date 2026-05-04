@@ -46,6 +46,7 @@ type filesystem interface {
 	ReadFile(path string) ([]byte, error)
 	WriteFile(path string, data []byte, perm os.FileMode) error
 	Remove(path string) error
+	Rename(oldpath, newpath string) error
 	Chown(path string, uid, gid int) error
 	Chmod(path string, mode os.FileMode) error
 	WalkDir(root string, fn filepath.WalkFunc) error
@@ -59,6 +60,7 @@ func (osFS) WriteFile(path string, data []byte, perm os.FileMode) error {
 	return os.WriteFile(path, data, perm)
 }
 func (osFS) Remove(path string) error                        { return os.Remove(path) }
+func (osFS) Rename(oldpath, newpath string) error            { return os.Rename(oldpath, newpath) }
 func (osFS) Chown(path string, uid, gid int) error           { return os.Chown(path, uid, gid) }
 func (osFS) Chmod(path string, mode os.FileMode) error       { return os.Chmod(path, mode) }
 func (osFS) WalkDir(root string, fn filepath.WalkFunc) error { return filepath.Walk(root, fn) }
@@ -303,7 +305,27 @@ func (s *linuxService) copySelf() error {
 	if dstData, err := s.fs.ReadFile(binaryPath); err == nil && bytes.Equal(srcData, dstData) {
 		return nil
 	}
-	return s.fs.WriteFile(binaryPath, srcData, 0o755)
+	// Write to a sibling temp file and atomically rename into place.
+	// Direct WriteFile on binaryPath fails with ETXTBSY ("text file busy")
+	// when an existing telemetron.service is holding the old binary open.
+	// The rename swaps the directory entry to the new inode; the old
+	// process keeps its mapping to the old inode until it exits.
+	dir := filepath.Dir(binaryPath)
+	if err := s.fs.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	tmp := filepath.Join(dir, ".telemetron.new")
+	// Best-effort cleanup of any stale temp from a previous failed install.
+	_ = s.fs.Remove(tmp)
+	if err := s.fs.WriteFile(tmp, srcData, 0o755); err != nil {
+		return err
+	}
+	if err := s.fs.Rename(tmp, binaryPath); err != nil {
+		// Leave the temp file for post-mortem inspection; the install will
+		// retry and Remove() above will clean it up.
+		return fmt.Errorf("rename %s -> %s: %w", tmp, binaryPath, err)
+	}
+	return nil
 }
 
 func (s *linuxService) ensureSystemUser() error {

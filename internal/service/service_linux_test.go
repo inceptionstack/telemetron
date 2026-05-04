@@ -24,6 +24,7 @@ type fakeFS struct {
 	written  []string
 	removed  []string
 	chmodded []string
+	renames  []string
 }
 
 func (f *fakeFS) MkdirAll(path string, perm os.FileMode) error {
@@ -50,6 +51,23 @@ func (f *fakeFS) WriteFile(path string, data []byte, perm os.FileMode) error {
 
 func (f *fakeFS) Remove(path string) error {
 	f.removed = append(f.removed, path)
+	if f.data != nil {
+		delete(f.data, path)
+	}
+	return nil
+}
+
+func (f *fakeFS) Rename(oldpath, newpath string) error {
+	if f.data == nil {
+		f.data = map[string][]byte{}
+	}
+	data, ok := f.data[oldpath]
+	if !ok {
+		return os.ErrNotExist
+	}
+	f.data[newpath] = data
+	delete(f.data, oldpath)
+	f.renames = append(f.renames, oldpath+" -> "+newpath)
 	return nil
 }
 
@@ -169,6 +187,116 @@ func TestInstallChownsTokenAndStateDir(t *testing.T) {
 	// Unit must be pinned to the system user when SUDO_USER is unset.
 	unit := string(fs.data["/etc/systemd/system/telemetron.service"])
 	require.Contains(t, unit, "User=telemetron")
+}
+
+// TestCopySelfUsesTempFileAndRename guards the ETXTBSY fix (2026-05-04).
+// When a previous telemetron service is still running, the installer
+// cannot WriteFile directly onto /usr/local/bin/telemetron — Linux
+// returns "text file busy". The fix writes to a sibling temp file and
+// atomically renames it into place, which is safe because the old
+// process's mmap references the inode, not the directory entry.
+//
+// This test asserts the two invariants that make the fix correct:
+//  1. The actual write target is NOT /usr/local/bin/telemetron
+//  2. A Rename(tmp -> /usr/local/bin/telemetron) follows the write
+func TestCopySelfUsesTempFileAndRename(t *testing.T) {
+	t.Setenv("SUDO_USER", "")
+	fs := &fakeFS{
+		data: map[string][]byte{
+			"/tmp/telemetron":           []byte("new-bin"),
+			"/usr/local/bin/telemetron": []byte("old-bin"),
+		},
+		walks: map[string][]string{
+			"/var/lib/telemetron": {"/var/lib/telemetron"},
+		},
+	}
+	svc := &linuxService{
+		fs:        fs,
+		run:       func(string, ...string) error { return nil },
+		runOutput: func(string, ...string) ([]byte, error) { return []byte("telemetron:x:1001:1001::/var/lib/telemetron:/usr/sbin/nologin"), nil },
+		lookupUser: func(username string) (*user.User, error) {
+			return &user.User{Uid: "1001", Gid: "1001", Username: username}, nil
+		},
+		lookupGroup: func(gid string) (*user.Group, error) {
+			return &user.Group{Gid: gid, Name: "telemetron"}, nil
+		},
+		executable: func() (string, error) { return "/tmp/telemetron", nil },
+		uid:        func() int { return 0 },
+	}
+	cfg := config.Config{
+		Mode:       "testmode",
+		Endpoint:   "https://example.test/v1/metrics",
+		TokenFile:  "/etc/telemetron/token",
+		FilePath:   "/etc/telemetron/config.yaml",
+		Paths:      config.Paths{StateDir: "/var/lib/telemetron"},
+		Collectors: map[string]any{"testmode": map[string]any{"session_dir": "/tmp/sessions"}},
+	}
+
+	require.NoError(t, svc.Install(cfg, "secret"))
+
+	// Invariant 1: the binary must have been written to a sibling
+	// temp path, not directly to the final path. Writing to the
+	// final path directly would trip ETXTBSY on a real host.
+	require.NotContains(t, fs.written, "/usr/local/bin/telemetron",
+		"copySelf must not WriteFile directly onto the running binary")
+	var tmpWrite string
+	for _, w := range fs.written {
+		if filepath.Dir(w) == "/usr/local/bin" && w != "/usr/local/bin/telemetron" {
+			tmpWrite = w
+			break
+		}
+	}
+	require.NotEmpty(t, tmpWrite, "expected a temp-file write under /usr/local/bin, got %v", fs.written)
+
+	// Invariant 2: a Rename(tmpWrite -> /usr/local/bin/telemetron) must
+	// have followed, so the swap is atomic on the same filesystem.
+	require.Contains(t, fs.renames, tmpWrite+" -> /usr/local/bin/telemetron",
+		"copySelf must Rename the temp binary into the final path")
+
+	// And the final binary contents must match the source.
+	require.Equal(t, []byte("new-bin"), fs.data["/usr/local/bin/telemetron"])
+}
+
+func TestCopySelfSkipsWhenUnchanged(t *testing.T) {
+	// Re-installing the same binary must be a no-op: no temp write,
+	// no rename. Otherwise every `telemetron setup` call would burn
+	// a brief window where the binary is swapped underneath running
+	// processes for no reason.
+	t.Setenv("SUDO_USER", "")
+	fs := &fakeFS{
+		data: map[string][]byte{
+			"/tmp/telemetron":           []byte("same-bin"),
+			"/usr/local/bin/telemetron": []byte("same-bin"),
+		},
+		walks: map[string][]string{"/var/lib/telemetron": {"/var/lib/telemetron"}},
+	}
+	svc := &linuxService{
+		fs:        fs,
+		run:       func(string, ...string) error { return nil },
+		runOutput: func(string, ...string) ([]byte, error) { return []byte("telemetron:x:1001:1001::/var/lib/telemetron:/usr/sbin/nologin"), nil },
+		lookupUser: func(username string) (*user.User, error) {
+			return &user.User{Uid: "1001", Gid: "1001", Username: username}, nil
+		},
+		lookupGroup: func(gid string) (*user.Group, error) {
+			return &user.Group{Gid: gid, Name: "telemetron"}, nil
+		},
+		executable: func() (string, error) { return "/tmp/telemetron", nil },
+		uid:        func() int { return 0 },
+	}
+	cfg := config.Config{
+		Mode:       "testmode",
+		Endpoint:   "https://example.test/v1/metrics",
+		TokenFile:  "/etc/telemetron/token",
+		FilePath:   "/etc/telemetron/config.yaml",
+		Paths:      config.Paths{StateDir: "/var/lib/telemetron"},
+		Collectors: map[string]any{"testmode": map[string]any{"session_dir": "/tmp/sessions"}},
+	}
+
+	require.NoError(t, svc.Install(cfg, "secret"))
+	for _, r := range fs.renames {
+		require.NotContains(t, r, "/usr/local/bin/telemetron",
+			"copySelf must skip the temp+rename dance when bytes already match")
+	}
 }
 
 func TestInstallAsUsesSudoUserByDefault(t *testing.T) {
