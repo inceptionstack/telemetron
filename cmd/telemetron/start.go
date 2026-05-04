@@ -15,6 +15,7 @@ import (
 	"github.com/inceptionstack/telemetron/internal/otlp"
 	"github.com/inceptionstack/telemetron/internal/status"
 	"github.com/inceptionstack/telemetron/internal/telemetry"
+	"github.com/inceptionstack/telemetron/internal/updater"
 	"github.com/spf13/cobra"
 )
 
@@ -25,6 +26,16 @@ func newStartCmd() *cobra.Command {
 		Use:   "start",
 		Short: "Run in the foreground",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Check for rollback FIRST — before config, token, or anything else.
+			// If the previous binary update crashed, restore .prev and exit
+			// so systemd restarts with the restored binary.
+			if updater.IsManagedInstall() {
+				earlyLogger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+				if updater.CheckRollback(earlyLogger) {
+					os.Exit(updater.ExitCodeUpdate)
+				}
+			}
+
 			// Honour user-facing opt-out BEFORE reading config, token,
 			// or opening any sockets. See internal/telemetry/optout.go.
 			if disabled, source, value := telemetry.IsDisabled(); disabled {
@@ -45,6 +56,7 @@ func newStartCmd() *cobra.Command {
 				return err
 			}
 			logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+
 			store := status.New(cfg.Paths.StatusFile)
 			collector, err := collectorapi.New(cfg.Collectors[cfg.Mode], store, cfg)
 			if err != nil {
@@ -54,7 +66,36 @@ func newStartCmd() *cobra.Command {
 			sink := otlp.NewSink(exporter, logger, store, cfg.Mode)
 			ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 			defer cancel()
-			return collector.Start(ctx, sink)
+
+			// Start auto-updater in background if this is a managed install
+			updateCh := make(chan int, 1)
+			if updater.IsManagedInstall() {
+				up := updater.New(version, updater.ManagedBinaryPath, logger, store)
+				if cfg.AutoUpdate.IsEnabled() {
+					go func() {
+						if code := up.Run(ctx, cfg.AutoUpdate, cfg.Declared.Tier); code == updater.ExitCodeUpdate {
+							logger.Info("auto-update applied, requesting shutdown", slog.Int("exit_code", code))
+							updateCh <- code
+							cancel()
+						}
+					}()
+				} else {
+					// Even with updates disabled, confirm any pending update
+					// so the pending flag gets cleared and doesn't cause a
+					// false rollback on next restart.
+					up.ConfirmIfPending(ctx)
+				}
+			}
+
+			err = collector.Start(ctx, sink)
+
+			// Check if we're exiting for an update
+			select {
+			case code := <-updateCh:
+				os.Exit(code)
+			default:
+			}
+			return err
 		},
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/inceptionstack/telemetron/internal/updater"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 )
@@ -24,7 +25,8 @@ type Config struct {
 	InsecureEndpoint bool           `mapstructure:"insecure_endpoint" yaml:"insecure_endpoint,omitempty"`
 	RunAs            string         `mapstructure:"run_as" yaml:"run_as,omitempty"`
 	Declared         DeclaredConfig `mapstructure:"declared" yaml:"declared,omitempty"`
-	Collectors       map[string]any `mapstructure:",remain" yaml:",inline,omitempty"`
+	Collectors       map[string]any  `mapstructure:",remain" yaml:",inline,omitempty"`
+	AutoUpdate       updater.Config  `mapstructure:"auto_update" yaml:"auto_update,omitempty"`
 
 	FilePath string `mapstructure:"-" yaml:"-"`
 	Paths    Paths  `mapstructure:"-" yaml:"-"`

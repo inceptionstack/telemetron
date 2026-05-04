@@ -91,7 +91,7 @@ func (f *fakeFS) WalkDir(root string, fn filepath.WalkFunc) error {
 }
 
 func TestRenderUnitIncludesRequiredLines(t *testing.T) {
-	unit := renderUnit("/etc/telemetron/config.yaml", "ec2-user", "ec2-user")
+	unit := renderUnit("/etc/telemetron/config.yaml", "ec2-user", "ec2-user", "/usr/local/bin/telemetron")
 	require.Contains(t, unit, "User=ec2-user")
 	require.Contains(t, unit, "Group=ec2-user")
 	require.Contains(t, unit, "ExecStart=/usr/local/bin/telemetron start --config /etc/telemetron/config.yaml")
