@@ -182,7 +182,36 @@ func (u *Updater) applyCore(ctx context.Context, rel *Release, beforeRename func
 		slog.String("to", rel.TagName),
 		slog.String("prev", u.binaryPath+".prev"))
 
+	// Best-effort: sync the other binary path so CLI and service stay aligned.
+	u.syncCompanionBinary()
+
 	return nil
+}
+
+// syncCompanionBinary copies the updated binary to the other path
+// (managed → legacy or legacy → managed) so both stay in sync.
+func (u *Updater) syncCompanionBinary() {
+	var companion string
+	switch u.binaryPath {
+	case ManagedBinaryPath:
+		companion = LegacyBinaryPath
+	case LegacyBinaryPath:
+		companion = ManagedBinaryPath
+	default:
+		return // non-standard path, skip
+	}
+
+	data, err := os.ReadFile(u.binaryPath)
+	if err != nil {
+		return
+	}
+	// Ensure parent dir exists (managed path may not exist on legacy installs)
+	_ = os.MkdirAll(filepath.Dir(companion), 0o755)
+	if err := fsatomic.WriteFile(companion, data, fsatomic.WithMode(0o755)); err != nil {
+		u.logger.Warn("failed to sync companion binary",
+			slog.String("path", companion),
+			slog.String("error", err.Error()))
+	}
 }
 
 // IsManagedInstall checks if the running binary is in the managed path.
