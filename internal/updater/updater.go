@@ -166,7 +166,16 @@ func checkRollback(logger *slog.Logger, statePath, binaryPath string) bool {
 		var full State
 		_ = json.Unmarshal(data, &full)
 		full.UpdateStarted = true
-		writeStateTo(statePath, full)
+		if err := writeStateTo(statePath, full); err != nil {
+			// Can't persist started flag — clear pending to avoid infinite
+			// first-boot loop. If clearPending also fails (disk truly broken),
+			// the process continues without rollback protection.
+			logger.Warn("failed to mark update_started, clearing pending",
+				slog.String("event", "update_started_write_failed"),
+				slog.String("error", err.Error()))
+			clearPending(logger, statePath, "")
+			return false
+		}
 		logger.Info("update first boot, marking started",
 			slog.String("event", "update_first_boot"),
 			slog.String("version", state.PendingVer))
@@ -182,7 +191,7 @@ func checkRollback(logger *slog.Logger, statePath, binaryPath string) bool {
 	if _, err := os.Stat(prevPath); err != nil {
 		logger.Warn("no .prev binary for rollback, skipping",
 			slog.String("event", "update_rollback_skip"))
-		clearPending(statePath, state.PendingVer)
+		clearPending(logger, statePath, state.PendingVer)
 		return false
 	}
 
@@ -191,18 +200,18 @@ func checkRollback(logger *slog.Logger, statePath, binaryPath string) bool {
 		logger.Error("rollback rename failed",
 			slog.String("event", "update_rollback_failed"),
 			slog.String("error", err.Error()))
-		clearPending(statePath, state.PendingVer)
+		clearPending(logger, statePath, state.PendingVer)
 		return false
 	}
 
-	clearPending(statePath, state.PendingVer)
+	clearPending(logger, statePath, state.PendingVer)
 	logger.Info("rollback complete, exiting for restart with restored binary",
 		slog.String("event", "update_rollback_done"),
 		slog.String("rolled_back_version", state.PendingVer))
 	return true
 }
 
-func clearPending(statePath, rolledBackVersion string) {
+func clearPending(logger *slog.Logger, statePath, rolledBackVersion string) {
 	data, _ := os.ReadFile(statePath)
 	var state State
 	_ = json.Unmarshal(data, &state)
@@ -210,16 +219,19 @@ func clearPending(statePath, rolledBackVersion string) {
 	state.UpdateStarted = false
 	state.PendingVersion = ""
 	state.RolledBackVersion = rolledBackVersion
-	writeStateTo(statePath, state)
+	if err := writeStateTo(statePath, state); err != nil {
+		logger.Warn("clearPending: failed to write state",
+			slog.String("error", err.Error()))
+	}
 }
 
 
-func writeStateTo(path string, state State) {
+func writeStateTo(path string, state State) error {
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
-		return
+		return err
 	}
-	_ = fsatomic.WriteFile(path, data)
+	return fsatomic.WriteFile(path, data)
 }
 
 // Run starts the update check loop. Blocks until ctx is cancelled.
@@ -260,7 +272,10 @@ func (u *Updater) Run(ctx context.Context, cfg Config) int {
 			}
 			u.mu.Lock()
 			u.state.LastCheck = time.Now().UTC()
-			writeStateTo(u.statePath, u.state)
+			if err := writeStateTo(u.statePath, u.state); err != nil {
+				u.logger.Warn("failed to persist last_check",
+					slog.String("error", err.Error()))
+			}
 			u.mu.Unlock()
 			timer.Reset(interval)
 		}
@@ -417,13 +432,18 @@ func (u *Updater) downloadAndApply(ctx context.Context, rel *Release) error {
 
 	// Write update_pending BEFORE the rename
 	u.mu.Lock()
+	prevState := u.state // snapshot for rollback on write failure
 	u.state.UpdatePending = true
 	u.state.UpdateStarted = false
 	u.state.PendingVersion = rel.TagName
 	u.state.LastUpdate = time.Now().UTC()
 	u.state.PreviousVersion = u.currentVersion
 	u.state.CurrentVersion = strings.TrimPrefix(rel.TagName, "v")
-	writeStateTo(u.statePath, u.state)
+	if err := writeStateTo(u.statePath, u.state); err != nil {
+		u.state = prevState // revert in-memory state
+		u.mu.Unlock()
+		return fmt.Errorf("persist update_pending state: %w", err)
+	}
 	u.mu.Unlock()
 
 	// Atomic rename staged → binary
@@ -433,7 +453,10 @@ func (u *Updater) downloadAndApply(ctx context.Context, rel *Release) error {
 		u.state.UpdatePending = false
 		u.state.UpdateStarted = false
 		u.state.PendingVersion = ""
-		writeStateTo(u.statePath, u.state)
+		if wErr := writeStateTo(u.statePath, u.state); wErr != nil {
+			u.logger.Warn("failed to clear pending state after rename failure",
+				slog.String("error", wErr.Error()))
+		}
 		u.mu.Unlock()
 		return fmt.Errorf("rename staged binary: %w", err)
 	}
@@ -585,12 +608,20 @@ func (u *Updater) confirmUpdateWithInterval(ctx context.Context, tickInterval ti
 			current := u.flushCounter.FlushCount()
 			if current-startCount >= confirmFlushes {
 				u.mu.Lock()
+				prevState := u.state
 				u.state.UpdatePending = false
 				u.state.UpdateStarted = false
 				u.state.PendingVersion = ""
 				// Clear rolled_back_version on successful new update
 				u.state.RolledBackVersion = ""
-				writeStateTo(u.statePath, u.state)
+				if err := writeStateTo(u.statePath, u.state); err != nil {
+					// Revert in-memory state so the loop retries on next tick
+					u.state = prevState
+					u.mu.Unlock()
+					u.logger.Warn("failed to persist update confirmation, will retry",
+						slog.String("error", err.Error()))
+					continue
+				}
 				u.mu.Unlock()
 				u.logger.Info("update confirmed after successful flushes",
 					slog.String("event", "update_confirmed"),
