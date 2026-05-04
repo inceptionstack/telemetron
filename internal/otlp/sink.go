@@ -76,6 +76,7 @@ func (s *Sink) Flush(ctx context.Context) (FlushResult, error) {
 	s.mu.Unlock()
 
 	if len(points) == 0 {
+		s.status.IncrFlush() // Empty flush = binary is functional
 		return FlushResult{DroppedTotal: s.dropped}, nil
 	}
 
@@ -124,6 +125,7 @@ func (s *Sink) Flush(ctx context.Context) (FlushResult, error) {
 		slog.Int("http_status", resp.StatusCode),
 		slog.Int64("took_ms", time.Since(start).Milliseconds()),
 	)
+	s.status.IncrFlush() // Successful non-empty flush
 	return result, nil
 }
 

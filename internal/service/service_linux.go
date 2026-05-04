@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/inceptionstack/telemetron/internal/config"
+	"github.com/inceptionstack/telemetron/internal/updater"
 )
 
 const (
@@ -209,7 +210,7 @@ func (s *linuxService) InstallAs(cfg config.Config, token, runAsUser string) err
 	if err := s.fs.Chmod(cfg.TokenFile, 0o400); err != nil {
 		return err
 	}
-	if err := s.fs.WriteFile(unitPath, []byte(renderUnit(cfg.FilePath, username, groupname)), 0o644); err != nil {
+	if err := s.fs.WriteFile(unitPath, []byte(renderUnit(cfg.FilePath, username, groupname, resolveBinaryPath())), 0o644); err != nil {
 		return err
 	}
 	return s.chownRecursive(cfg.Paths.StateDir, uid, gid)
@@ -266,19 +267,22 @@ func (s *linuxService) ProbeStatus() (Status, error) {
 	return Status{Installed: installed, Active: active, Detail: detail}, nil
 }
 
-func renderUnit(configPath, runAsUser, runAsGroup string) string {
+func renderUnit(configPath, runAsUser, runAsGroup, binPath string) string {
 	return fmt.Sprintf(`[Unit]
 Description=telemetron OTLP metrics sidecar
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=10
 
 [Service]
 Type=simple
 User=%s
 Group=%s
-ExecStart=/usr/local/bin/telemetron start --config %s
+ExecStart=%s start --config %s
 Restart=on-failure
 RestartSec=10
+RestartForceExitStatus=64
 LimitCORE=0
 ProtectSystem=strict
 ProtectHome=read-only
@@ -290,7 +294,16 @@ StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
-`, runAsUser, runAsGroup, configPath)
+`, runAsUser, runAsGroup, binPath, configPath)
+}
+
+// resolveBinaryPath returns the binary path for ExecStart.
+// Prefers the managed path if it exists (written by copySelf).
+func resolveBinaryPath() string {
+	if _, err := os.Stat(updater.ManagedBinaryPath); err == nil {
+		return updater.ManagedBinaryPath
+	}
+	return binaryPath
 }
 
 func (s *linuxService) copySelf() error {
@@ -302,28 +315,24 @@ func (s *linuxService) copySelf() error {
 	if err != nil {
 		return err
 	}
-	if dstData, err := s.fs.ReadFile(binaryPath); err == nil && bytes.Equal(srcData, dstData) {
-		return nil
-	}
-	// Write to a sibling temp file and atomically rename into place.
-	// Direct WriteFile on binaryPath fails with ETXTBSY ("text file busy")
-	// when an existing telemetron.service is holding the old binary open.
-	// The rename swaps the directory entry to the new inode; the old
-	// process keeps its mapping to the old inode until it exits.
-	dir := filepath.Dir(binaryPath)
-	if err := s.fs.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	tmp := filepath.Join(dir, ".telemetron.new")
-	// Best-effort cleanup of any stale temp from a previous failed install.
-	_ = s.fs.Remove(tmp)
-	if err := s.fs.WriteFile(tmp, srcData, 0o755); err != nil {
-		return err
-	}
-	if err := s.fs.Rename(tmp, binaryPath); err != nil {
-		// Leave the temp file for post-mortem inspection; the install will
-		// retry and Remove() above will clean it up.
-		return fmt.Errorf("rename %s -> %s: %w", tmp, binaryPath, err)
+
+	// Copy to both legacy path and managed path
+	for _, dst := range []string{binaryPath, updater.ManagedBinaryPath} {
+		if dstData, err := s.fs.ReadFile(dst); err == nil && bytes.Equal(srcData, dstData) {
+			continue
+		}
+		dir := filepath.Dir(dst)
+		if err := s.fs.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+		tmp := filepath.Join(dir, ".telemetron.new")
+		_ = s.fs.Remove(tmp)
+		if err := s.fs.WriteFile(tmp, srcData, 0o755); err != nil {
+			return err
+		}
+		if err := s.fs.Rename(tmp, dst); err != nil {
+			return fmt.Errorf("rename %s -> %s: %w", tmp, dst, err)
+		}
 	}
 	return nil
 }
