@@ -66,6 +66,13 @@ Special cases:
 - Default: `info`
 - Purpose: structured log verbosity
 
+### `run_as`
+
+- Type: string
+- Required: no
+- Default: auto-detected from `$SUDO_USER`
+- Purpose: user the systemd service runs as
+
 ### `insecure_endpoint`
 
 - Type: boolean
@@ -154,6 +161,34 @@ Optional operator-supplied metadata attached as OTLP resource attributes for loc
 ### `TELEMETRON_MODE`
 
 - Overrides `mode`
+
+### `TELEMETRON_RUN_AS`
+
+- Overrides `run_as` — the user the systemd service runs as
+
+### `TELEMETRON_SESSION_DIR`
+
+- Overrides the mode-specific `session_dir` (e.g. `openclaw.session_dir`)
+
+### `TELEMETRON_DEPLOYMENT_ID`
+
+- Overrides `declared.deployment_id`
+
+### `TELEMETRON_TIER`
+
+- Overrides `declared.tier` — one of `internal`, `production`, `development`, `staging`, `unknown`
+
+### `TELEMETRON_ENROLL_ENDPOINT`
+
+- Enrollment endpoint URL for anonymous auto-enroll (default: `https://telemetry.loki.run/v1/enroll`)
+
+### `TELEMETRON_NO_AUTO_ENROLL`
+
+- Set to `1` to disable anonymous enrollment when no token source is configured
+
+### `TELEMETRON_TOKEN_SECRET`
+
+- AWS Secrets Manager secret ID; the installer fetches the secret value and stages it as the bearer token
 
 ### `TELEMETRON_LOG_LEVEL`
 

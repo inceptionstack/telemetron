@@ -1,326 +1,166 @@
 # telemetron
 
-Privacy-safe telemetry sidecar for Loki/OpenClaw-style agent sessions, exporting bounded OTLP metrics without shipping transcript content.
+Privacy-safe telemetry sidecar for coding agent sessions. Exports bounded OTLP metrics without shipping transcript content.
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/inceptionstack/telemetron.svg)](https://pkg.go.dev/github.com/inceptionstack/telemetron)
 [![CI](https://img.shields.io/github/actions/workflow/status/inceptionstack/telemetron/ci.yml?branch=main&label=ci)](https://github.com/inceptionstack/telemetron/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/inceptionstack/telemetron)](LICENSE)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/inceptionstack/telemetron)](go.mod)
-
-## What it is
-
-`telemetron` is a small Go binary that tails local session JSONL files, derives a bounded set of counters, and exports them to any OTLP/HTTP metrics endpoint. It is built for operators who want host-local telemetry collection without shipping prompts, responses, tool payloads, or other per-message content off the machine.
-
-## Why
-
-Modern coding agents leave rich local state behind, but shipping that state raw creates privacy, compliance, and operational risk. `telemetron` solves that by acting as a privacy-safe telemetry sidecar that derives bounded counters and sends them to any OTLP/HTTP endpoint with bearer auth, without leaking per-message content or prompt data.
 
 ## Install
 
-### One-line installer (recommended)
+### Quick install (with auto-enrollment)
 
-Install the binary only:
+For most users — installs the binary, auto-enrolls with the telemetry endpoint, and starts the systemd service:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/inceptionstack/telemetron/main/install.sh | \
+  TELEMETRON_ENDPOINT=https://your-endpoint.example.com/v1/metrics \
+  TELEMETRON_ENROLL_ENDPOINT=https://your-endpoint.example.com/v1/enroll \
+  TELEMETRON_MODE=openclaw \
+  sudo -E bash
+```
+
+This will:
+1. Download and verify the latest binary
+2. Auto-enroll with the telemetry backend (no token needed)
+3. Detect your agent's session directory
+4. Install and start a systemd service
+
+### With an existing token
+
+If you already have a bearer token:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/inceptionstack/telemetron/main/install.sh | \
+  TELEMETRON_ENDPOINT=https://your-endpoint.example.com/v1/metrics \
+  TELEMETRON_TOKEN_FILE=/path/to/token \
+  TELEMETRON_MODE=openclaw \
+  sudo -E bash
+```
+
+### Binary only (no service)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/inceptionstack/telemetron/main/install.sh | sh
 ```
 
-Install **and** configure the systemd service in one shot by setting an
-endpoint and a token source:
+### Environment variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `TELEMETRON_ENDPOINT` | Yes (for service) | OTLP/HTTP metrics endpoint (`/v1/metrics`) |
+| `TELEMETRON_ENROLL_ENDPOINT` | For auto-enroll | Enrollment endpoint (`/v1/enroll`). Defaults to `https://telemetry.loki.run/v1/enroll` |
+| `TELEMETRON_MODE` | Recommended | Agent mode: `openclaw`, `claude-code`, `kiro-cli`, etc. |
+| `TELEMETRON_TOKEN_FILE` | If not enrolling | Path to bearer token file |
+| `TELEMETRON_TOKEN_SECRET` | If not enrolling | AWS Secrets Manager secret ID |
+| `TELEMETRON_VERSION` | No | Pin a specific release (default: latest) |
+| `TELEMETRON_PREFIX` | No | Install root (default: `$HOME/.local`, or `/usr/local` under sudo) |
+| `TELEMETRON_SESSION_DIR` | No | Override auto-detected session directory |
+| `TELEMETRON_RUN_AS` | No | User to run the service as (default: `$SUDO_USER`) |
+| `TELEMETRON_NO_AUTO_ENROLL` | No | Set to `1` to disable anonymous enrollment |
+| `TELEMETRON_SETUP_ARGS` | No | Extra args passed to `telemetron setup` |
+
+### Other install methods
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/inceptionstack/telemetron/main/install.sh \
-  | sudo env TELEMETRON_ENDPOINT=https://your-otlp-gateway.example.com/v1/metrics \
-             TELEMETRON_TOKEN=your-bearer-token \
-             sh
+# From source
+git clone https://github.com/inceptionstack/telemetron.git
+cd telemetron && make build
+
+# Go install
+go install github.com/inceptionstack/telemetron/cmd/telemetron@latest
 ```
 
-The installer downloads the latest Linux/macOS (amd64/arm64) release
-tarball, verifies its SHA-256 against the published `checksums.txt`,
-installs the binary into `$HOME/.local/bin/telemetron` (or
-`/usr/local/bin` under sudo), and — when an endpoint + token are
-provided — runs `telemetron setup --non-interactive --yes` before
-exiting.
+## What it does
 
-The script is [POSIX shell](install.sh) and uses only `curl`, `tar`,
-`sha256sum` (or `shasum`), and `uname`.
+`telemetron` watches local agent session files, derives a bounded set of counters (session starts, agent turns, tool calls, errors), and exports them via OTLP/HTTP. It never sends transcript bodies, prompt content, or tool arguments.
 
-Environment overrides:
-
-| var | purpose |
-| --- | --- |
-| `TELEMETRON_VERSION` | pin a specific release tag (default: latest) |
-| `TELEMETRON_PREFIX` | install root (default: `$HOME/.local`) |
-| `TELEMETRON_ENDPOINT` | OTLP/HTTP endpoint to configure |
-| `TELEMETRON_TOKEN_FILE` | path to a file containing the bearer token (preferred) |
-| `TELEMETRON_TOKEN_SECRET` | AWS Secrets Manager secret id (requires `aws` CLI) |
-| `TELEMETRON_TOKEN` | bearer token value — **not recommended** (leaks via shell history, `/proc/<pid>/environ`, CI logs) |
-| `TELEMETRON_SETUP_ARGS` | extra args appended to `telemetron setup`. Trusted input only — shell-split into argv. |
-
-Exactly one token source must be set. Multiple sources cause the
-installer to refuse to proceed.
-
-Examples:
-
-```bash
-# AWS Secrets Manager
-curl -fsSL https://raw.githubusercontent.com/inceptionstack/telemetron/main/install.sh \
-  | sudo env TELEMETRON_ENDPOINT=https://otlp.example.com/v1/metrics \
-             TELEMETRON_TOKEN_SECRET=/my/telemetron/token \
-             AWS_REGION=us-east-1 \
-             sh
-
-# Token already on disk
-curl -fsSL https://raw.githubusercontent.com/inceptionstack/telemetron/main/install.sh \
-  | sudo env TELEMETRON_ENDPOINT=https://otlp.example.com/v1/metrics \
-             TELEMETRON_TOKEN_FILE=/run/secrets/telemetron-token \
-             sh
+```
+sessions/*.jsonl → tail → derive counters → OTLP/HTTP → your gateway
 ```
 
-### Alternatives
+### Metrics exported
 
-1. `go install`:
+| Metric | Type | Description |
+|--------|------|-------------|
+| `pack.session.start` | counter | Session started |
+| `pack.agent.turn` | counter | Agent turn completed |
+| `pack.tool.call` | counter | Tool invocation |
+| `pack.error` | counter | Error occurred |
+| `pack.emitter.heartbeat` | counter | Periodic liveness signal |
 
-   ```bash
-   go install github.com/inceptionstack/telemetron/cmd/telemetron@latest
-   ```
+### Privacy
 
-2. Manual download from [Releases](https://github.com/inceptionstack/telemetron/releases):
+- Only allowlisted metric names and normalized attribute values are sent
+- No transcript content, prompts, responses, or tool payloads leave the machine
+- Bearer token stored in `0400` file; HTTPS required by default
+- See [docs/privacy.md](docs/privacy.md) for full details
 
-   - `linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`
-
-3. From source:
-
-   ```bash
-   git clone https://github.com/inceptionstack/telemetron.git
-   cd telemetron
-   make build
-   ```
-
-## Quickstart
-
-After `install.sh` (or any of the alternatives above) puts `telemetron` on
-your `PATH`, use `telemetron setup` to wire it up. It auto-detects your
-agent, resolves sensible defaults, and verifies a first flush before
-reporting success.
-
-### Interactive (laptop, one-off)
-
-Drop the bearer token somewhere readable, then:
-
-```bash
-sudo telemetron setup \
-  --endpoint https://your-otlp-gateway.example.com/v1/metrics \
-  --token-file /path/to/your/token
-```
-
-What happens:
-
-1. Detects `~/.openclaw/agents/*/sessions` for the user who invoked `sudo`
-   (prefers `main` when present) and picks sensible `mode`, `session-dir`,
-   `run-as`, `deployment-id`, and `tier` defaults.
-2. Prints a summary of the resolved state and asks `Proceed? [Y/n]`.
-3. Installs the systemd unit, enables it, starts it, and waits for the
-   first successful flush before printing `telemetron installed — first
-   flush ok`.
-
-Re-running `telemetron setup` is always safe: same inputs → no-op; changed
-endpoint or token → in-place update + service restart.
-
-### Non-interactive (bundled installer, CI, image bake)
-
-`setup` is non-interactive-first. The same reconciler runs with zero
-prompts when stdin is not a TTY, or when `--non-interactive` is passed:
-
-```bash
-TELEMETRON_ENDPOINT="https://your-otlp-gateway.example.com/v1/metrics" \
-TELEMETRON_TOKEN_FILE=/run/secrets/telemetron-token \
-sudo telemetron setup --non-interactive --json --yes
-```
-
-`--json` emits one line-delimited JSON event per lifecycle phase on
-stdout, plus a final `setup.completed` or `setup.failed` envelope. The
-schema is stable (`telemetron.setup.v1`); see
-[docs/setup-contract.md](docs/setup-contract.md) for the full event list
-and error codes.
-
-Missing required inputs (`endpoint`, `token`) and ambiguous detection
-(more than one agent slot without `main`) fail fast with a structured
-error envelope — never silent fallbacks.
-
-### Anonymous enrollment
-
-If you run `telemetron setup` with an endpoint but without any token source, `telemetron` can anonymously enroll itself and stage a token automatically. The enrollment request sends only `install_id`, `machine_id`, `os`, `arch`, `source`, and `telemetron_version`; the flush path then includes `install_id` as a resource attribute. Details are documented in [docs/privacy.md](docs/privacy.md).
-
-To skip this path entirely, set `TELEMETRON_NO_AUTO_ENROLL=1` before running `setup`.
-
-### Low-level install (power users)
-
-`telemetron install` remains available for CI or tooling that already
-scripts against it. Prefer `setup` for everything else.
-
-```bash
-sudo telemetron install \
-  --endpoint https://your-otlp-gateway.example.com/v1/metrics \
-  --token-file /etc/telemetron/token \
-  --mode openclaw \
-  --session-dir "$HOME/.openclaw/agents/main/sessions"
-```
-
-The `--token` flag is deprecated (leaks via `ps` and shell history) and
-will be removed in a future release; use `--token-file` instead.
-
-For macOS, run `telemetron start --config ~/.config/telemetron/config.yaml`
-directly or under `launchd`. See [docs/macos.md](docs/macos.md).
-
-## Uninstall
-
-If you installed via the one-line installer, remove the binary:
-
-```bash
-rm -f "$HOME/.local/bin/telemetron"
-```
-
-If you installed the systemd service (via `telemetron setup` or
-`telemetron install`), remove it first (the config and state files are
-left on disk for safety):
-
-```bash
-sudo telemetron uninstall               # stop + disable + remove the unit
-sudo rm -rf /etc/telemetron             # config + token (optional)
-sudo rm -rf /var/lib/telemetron         # durable offsets + status (optional)
-```
 ## Configuration
 
-The full reference lives in [docs/configuration.md](docs/configuration.md). A complete example:
+After install, config lives at `/etc/telemetron/config.yaml`:
 
 ```yaml
-# Collector mode to load. v0.2 ships with "openclaw".
 mode: openclaw
-
-# OTLP/HTTP metrics endpoint. Use HTTPS in production.
-endpoint: https://your-otlp-gateway.example.com/v1/metrics
-
-# Path to a bearer token file. Keep this file mode 0400.
+endpoint: https://your-endpoint.example.com/v1/metrics
 token_file: /etc/telemetron/token
-
-# Structured log verbosity for foreground runs and service logs.
 log_level: info
-
-# Allow plaintext http:// endpoints for local testing only.
-insecure_endpoint: false
+run_as: your-user
 
 declared:
-  # Optional local metadata for debugging. The server may override identity.
-  deployment_id: dev-laptop
-  # Optional deployment tier hint.
-  tier: development
-  # Optional environment hint.
-  environment: local
-  # Optional operator-supplied pack or bundle version.
-  pack_version: telemetron-0.2.0
+  deployment_id: loki@my-host
+  tier: production
 
 openclaw:
-  # Directory containing session JSONL files to tail.
-  session_dir: /home/you/.openclaw/agents/main/sessions
-  # Interval between OTLP flushes.
+  session_dir: /home/your-user/.openclaw/agents/main/sessions
   flush_interval: 15s
-  # Interval between scans for appended session data.
   scan_interval: 15s
-  # Durable state file storing per-session offsets.
   state_file: /var/lib/telemetron/openclaw.state.json
 ```
 
-## How it works
+Full reference: [docs/configuration.md](docs/configuration.md)
 
-`telemetron` watches local session files, resumes from durable offsets, derives an allowlisted set of counters, and exports those counters to your OTLP/HTTP gateway with bearer authentication. The collector never sends transcript bodies, prompt content, tool arguments, or other raw session payloads. It ships only bounded metric names and normalized attribute values.
+## Managing the service
 
-```text
-sessions/*.jsonl
-       |
-       v
-     tail
-       |
-       v
-derive counters
-       |
-       v
-   OTLP/HTTP
-       |
-       v
- your gateway
+```bash
+# Check status
+sudo telemetron status
+
+# Re-run setup (idempotent — same inputs = no-op)
+sudo telemetron setup --endpoint ... --token-file ...
+
+# Uninstall
+sudo telemetron uninstall
+sudo rm -rf /etc/telemetron /var/lib/telemetron  # optional: remove config + state
 ```
-
-## Extending to other agents
-
-The collector interface is intentionally additive. If you need support for another local agent or session format, you can add a new collector package, register it, and ship it without touching the OTLP sink or service plumbing. See [docs/extending.md](docs/extending.md) for a five-step walkthrough using a `claude-code` example.
-
-## Platform support
-
-| Platform | Install | Start | Status |
-| --- | --- | --- | --- |
-| Linux systemd | `telemetron install` supported | `telemetron start` supported | `telemetron status` supported |
-| macOS | daemon install unsupported | foreground `start` supported | `status` supported |
-| Other | daemon install unsupported | best-effort foreground `start` | limited `status` detail |
-
-## Security
-
-`telemetron` is designed so message content never leaves the box. The collector emits only allowlisted metric names with a bounded attribute set, reads its bearer token from a `0400` file, and requires HTTPS by default. Plaintext endpoints are rejected unless `insecure_endpoint` is explicitly enabled for local testing.
 
 ## Disabling telemetry
 
-`telemetron` honors its own opt-out signals **and** the [`lowkey`](https://github.com/inceptionstack/lowkey) installer-family signals, so a single opt-out disables both tools when they are deployed together:
+Any of these opt-out signals will prevent telemetron from starting:
 
-**Shared**
-- `DO_NOT_TRACK=1` — [consoledonottrack.com](https://consoledonottrack.com) community standard. Truthy: `1|true|yes|on` (case-insensitive).
+- `DO_NOT_TRACK=1` — [consoledonottrack.com](https://consoledonottrack.com) standard
+- `TELEMETRON_TELEMETRY=0`
+- `~/.telemetron/telemetry-off` marker file
+- `LOWKEY_TELEMETRY=0` (when deployed via [lowkey](https://github.com/inceptionstack/lowkey))
 
-**telemetron-specific**
-- `TELEMETRON_TELEMETRY=0` — falsy values `0|false|no|off` opt out; unset or any other value keeps telemetry enabled.
-- `~/.telemetron/telemetry-off` — marker file under the service user’s home.
+## Extending to other agents
 
-**Lowkey-family (inherited when deployed via `lowkey`)**
-- `LOWKEY_TELEMETRY=0`
-- `~/.lowkey/telemetry-off`
+The collector interface is additive — add a new collector package for your agent format without touching the OTLP sink or service plumbing. See [docs/extending.md](docs/extending.md).
 
-When any signal is present, `telemetron start` exits cleanly without loading config, reading the token, or opening any sockets. `telemetron status` reports `telemetry: disabled (<source>)` instead of probing the service.
+## Platform support
 
-Note: environment variables set in the interactive shell that ran the `lowkey` installer do **not** propagate into the `telemetron` systemd unit. For `lowkey`-installed deployments, `lowkey` should drop the marker file into the `telemetron` service user’s home so the opt-out sticks across restarts.
-
-## Status
-
-`alpha` for `v0.2`.
-
-## Reporting issues
-
-- **Bugs / feature requests:** [open a GitHub issue](https://github.com/inceptionstack/telemetron/issues/new/choose) using one of the templates.
-- **Security vulnerabilities:** see [SECURITY.md](SECURITY.md) — do **not** file public issues for anything involving token exposure or telemetry content leakage.
+| Platform | Service install | Foreground | Status |
+|----------|----------------|------------|--------|
+| Linux (systemd) | ✅ | ✅ | ✅ |
+| macOS | ❌ (use launchd) | ✅ | ✅ |
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+Apache-2.0 — see [LICENSE](LICENSE).
 
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Pre-commit hooks
+## Security
 
-The repo ships a [`.pre-commit-config.yaml`](.pre-commit-config.yaml) that runs `git-secrets`, `gofmt`, `go vet`, and whitespace hygiene on every commit. Enable it locally:
-
-```bash
-# one-time: install the pre-commit framework (https://pre-commit.com)
-pipx install pre-commit        # or: brew install pre-commit
-
-# one-time: configure git-secrets for this clone
-#   - registers AWS + telemetron token patterns
-#   - installs the git-secrets pre-commit / commit-msg / prepare-commit-msg hooks
-bash scripts/git-secrets-install.sh
-
-# enable the pre-commit hooks for this clone
-pre-commit install
-
-# optional: run across the whole tree once
-pre-commit run --all-files
-```
-
-The same `git-secrets` scan runs in CI via [`.github/workflows/ci.yml`](.github/workflows/ci.yml) (`secrets-scan` job, full working tree **and** history). Local hooks + CI keep the token patterns (`lpk_live_*`, `ghp_*`, `github_pat_*`, `x-access-token:*`, AWS keys, …) out of commits.
+See [SECURITY.md](SECURITY.md). Do **not** file public issues for token exposure or telemetry content leakage.
