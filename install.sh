@@ -12,16 +12,23 @@
 #   TELEMETRON_VERSION     pin a specific release tag (default: latest)
 #   TELEMETRON_PREFIX      install root (default: $HOME/.local, or /usr/local with sudo)
 #
-# Auto-setup (runs `telemetron setup` at the end when all three are set):
+# Auto-setup (runs `telemetron setup` at the end when TELEMETRON_ENDPOINT is set):
 #   TELEMETRON_ENDPOINT      OTLP/HTTP endpoint URL
 #   TELEMETRON_TOKEN         bearer token (takes precedence over token-file)
 #   TELEMETRON_TOKEN_FILE    path to a file containing the bearer token
 #   TELEMETRON_TOKEN_SECRET  AWS Secrets Manager secret id (fetched via `aws`)
 #   TELEMETRON_SETUP_ARGS    extra args appended verbatim to `telemetron setup`
 #
+# Zero token sources + endpoint set = anonymous auto-enroll path;
+# the binary mints an lpk_enroll_* token via the endpoint's companion
+# /v1/enroll route. One-liner:
+#
+#   curl -fsSL https://.../install.sh | \
+#     TELEMETRON_ENDPOINT=https://telemetry.loki.run/v1/metrics sudo -E sh
+#
 # Exactly one of TELEMETRON_TOKEN, TELEMETRON_TOKEN_FILE, or
-# TELEMETRON_TOKEN_SECRET is required for auto-setup. When an endpoint
-# is set but no token source is given, the installer exits non-zero.
+# TELEMETRON_TOKEN_SECRET is required only when the caller wants to
+# bring their own token; otherwise auto-enroll is used.
 # When neither endpoint nor token are set, setup is skipped and the
 # script behaves as before.
 #
@@ -49,6 +56,11 @@ Optional environment:
 
 Exactly one of TELEMETRON_TOKEN, TELEMETRON_TOKEN_FILE, or
 TELEMETRON_TOKEN_SECRET is required for auto-setup.
+
+Anonymous auto-enroll: if TELEMETRON_ENDPOINT is set and none of the
+three token sources are set, the installer delegates to
+`telemetron setup`, which mints an anonymous `lpk_enroll_*` token
+via the endpoint's /v1/enroll companion.
 EOF
   exit 0
 fi
@@ -193,15 +205,25 @@ if [ -n "$SETUP_ENDPOINT" ] || [ -n "$SETUP_TOKEN" ] || [ -n "$SETUP_TOKEN_FILE"
     exit 1
   fi
 
-  # Enforce exactly one token source.
+  # Enforce exactly one token source. Zero sources is allowed iff
+  # TELEMETRON_ANONYMOUS_ENROLL=1 (or the new shorthand: no token set
+  # AND TELEMETRON_ENDPOINT is set) — in that mode we skip token
+  # staging entirely and hand off to `telemetron setup`, which will
+  # run the auto-enroll flow against /v1/enroll.
   token_sources=0
   [ -n "$SETUP_TOKEN" ]        && token_sources=$((token_sources + 1))
   [ -n "$SETUP_TOKEN_FILE" ]   && token_sources=$((token_sources + 1))
   [ -n "$SETUP_TOKEN_SECRET" ] && token_sources=$((token_sources + 1))
+
+  # Anonymous auto-enroll: endpoint set, no token. Skip the token
+  # staging block entirely and delegate to `telemetron setup`, which
+  # calls /v1/enroll to mint an lpk_enroll_* token and writes it to
+  # /etc/telemetron/token itself. This is the one-liner path for
+  # users who just want "install + start reporting" without any
+  # pre-provisioned credential.
+  anonymous_enroll=0
   if [ "$token_sources" -eq 0 ]; then
-    printf 'telemetron-install: TELEMETRON_ENDPOINT is set but no token source was provided\n' >&2
-    printf '  set one of TELEMETRON_TOKEN, TELEMETRON_TOKEN_FILE, TELEMETRON_TOKEN_SECRET\n' >&2
-    exit 1
+    anonymous_enroll=1
   fi
   if [ "$token_sources" -gt 1 ]; then
     printf 'telemetron-install: multiple token sources set; choose exactly one of\n' >&2
@@ -231,6 +253,21 @@ if [ -n "$SETUP_ENDPOINT" ] || [ -n "$SETUP_TOKEN" ] || [ -n "$SETUP_TOKEN_FILE"
   fi
 
   printf '\ntelemetron-install: running auto-setup\n'
+
+  # -------- anonymous auto-enroll short-circuit --------
+  # No token to stage; just ensure root and invoke setup. The Go
+  # binary handles the /v1/enroll call and the token write under
+  # /etc/telemetron/token.
+  if [ "$anonymous_enroll" -eq 1 ]; then
+    $maybe_sudo install -d -m 0755 /etc/telemetron
+    # shellcheck disable=SC2086
+    $maybe_sudo env PATH="$PATH" "$bindir/telemetron" setup \
+      --non-interactive --yes \
+      --endpoint "$SETUP_ENDPOINT" \
+      $SETUP_ARGS
+    printf '\ntelemetron-install: auto-setup complete (anonymous enrollment)\n'
+    exit 0
+  fi
 
   # -------- resolve the token value into a variable --------
   # We capture the token in-process first, validate it, then write to
@@ -334,7 +371,8 @@ Next steps:
   3. Wire it to your OTLP gateway (recommended):
        sudo telemetron setup --endpoint <url> --token-file <path>
 
-Shortcut: set TELEMETRON_ENDPOINT and TELEMETRON_TOKEN (or
-TELEMETRON_TOKEN_FILE / TELEMETRON_TOKEN_SECRET) before running this
-installer and it will do the setup step for you.
+Shortcut: set TELEMETRON_ENDPOINT and (optionally) TELEMETRON_TOKEN
+(or TELEMETRON_TOKEN_FILE / TELEMETRON_TOKEN_SECRET) before running
+this installer and it will do the setup step for you. Leave the token
+unset to use anonymous auto-enroll.
 EOF
