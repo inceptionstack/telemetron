@@ -73,7 +73,7 @@ func newStartCmd() *cobra.Command {
 				up := updater.New(version, updater.ManagedBinaryPath, logger, store)
 				if cfg.AutoUpdate.IsEnabled() {
 					go func() {
-						if code := up.Run(ctx, cfg.AutoUpdate); code == updater.ExitCodeUpdate {
+						if code := up.Run(ctx, cfg.AutoUpdate, cfg.Declared.Tier); code == updater.ExitCodeUpdate {
 							logger.Info("auto-update applied, requesting shutdown", slog.Int("exit_code", code))
 							updateCh <- code
 							cancel()

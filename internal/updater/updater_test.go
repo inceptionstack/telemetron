@@ -262,8 +262,30 @@ func TestConfigDefaults(t *testing.T) {
 	if !c.IsEnabled() {
 		t.Error("expected default enabled=true")
 	}
-	if c.Interval() != 30*time.Minute {
-		t.Errorf("expected 30m, got %v", c.Interval())
+	// Default (no tier) = 12h
+	if c.Interval() != 720*time.Minute {
+		t.Errorf("expected 720m, got %v", c.Interval())
+	}
+}
+
+func TestConfigIntervalForTier(t *testing.T) {
+	c := Config{}
+	if c.IntervalForTier("test") != 30*time.Minute {
+		t.Errorf("test tier: expected 30m, got %v", c.IntervalForTier("test"))
+	}
+	if c.IntervalForTier("internal") != 30*time.Minute {
+		t.Errorf("internal tier: expected 30m, got %v", c.IntervalForTier("internal"))
+	}
+	if c.IntervalForTier("external") != 720*time.Minute {
+		t.Errorf("external tier: expected 720m, got %v", c.IntervalForTier("external"))
+	}
+	if c.IntervalForTier("") != 720*time.Minute {
+		t.Errorf("empty tier: expected 720m, got %v", c.IntervalForTier(""))
+	}
+	// Explicit config overrides tier default
+	c2 := Config{IntervalMinutes: 60}
+	if c2.IntervalForTier("test") != 60*time.Minute {
+		t.Errorf("explicit override: expected 60m, got %v", c2.IntervalForTier("test"))
 	}
 }
 

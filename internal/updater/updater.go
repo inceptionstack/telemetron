@@ -30,7 +30,8 @@ const (
 	// after a binary update.
 	ExitCodeUpdate = 64
 
-	defaultIntervalMinutes = 30 // 30 minutes
+	defaultIntervalMinutes         = 720 // 12 hours (production/external)
+	defaultIntervalMinutesFrequent = 30  // 30 minutes (test/internal)
 	initialJitterMax       = 5 * time.Minute
 	shortJitterMax         = 5 * time.Minute
 	confirmFlushes         = 3
@@ -67,6 +68,31 @@ func (c Config) Interval() time.Duration {
 		return time.Duration(c.IntervalMinutes) * time.Minute
 	}
 	return time.Duration(defaultIntervalMinutes) * time.Minute
+}
+
+// IntervalForTier returns the check interval, using a tier-appropriate
+// default when no explicit interval is configured.
+// Test and internal tiers check every 30m; external/production every 12h.
+func (c Config) IntervalForTier(tier string) time.Duration {
+	if env := os.Getenv("TELEMETRON_AUTO_UPDATE_INTERVAL"); env != "" {
+		if n, err := strconv.Atoi(env); err == nil && n > 0 {
+			return time.Duration(n) * time.Minute
+		}
+	}
+	if c.IntervalMinutes > 0 {
+		return time.Duration(c.IntervalMinutes) * time.Minute
+	}
+	return DefaultIntervalForTier(tier)
+}
+
+// DefaultIntervalForTier returns the default update check interval for a tier.
+func DefaultIntervalForTier(tier string) time.Duration {
+	switch tier {
+	case "test", "internal":
+		return time.Duration(defaultIntervalMinutesFrequent) * time.Minute
+	default:
+		return time.Duration(defaultIntervalMinutes) * time.Minute
+	}
 }
 
 // FlushCounter provides an interface to observe flush counts.
@@ -238,8 +264,8 @@ func checkRollback(logger *slog.Logger, statePath, binaryPath string) bool {
 
 // Run starts the update check loop. Blocks until ctx is cancelled.
 // Returns ExitCodeUpdate if an update was applied.
-func (u *Updater) Run(ctx context.Context, cfg Config) int {
-	interval := cfg.Interval()
+func (u *Updater) Run(ctx context.Context, cfg Config, tier string) int {
+	interval := cfg.IntervalForTier(tier)
 	u.sf.Load()
 
 	delay := u.initialDelay(interval)
