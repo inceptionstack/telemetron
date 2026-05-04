@@ -74,6 +74,11 @@ type FlushCounter interface {
 	FlushCount() uint64
 }
 
+// noopFlushCounter is used when no FlushCounter is provided (manual updates).
+type noopFlushCounter struct{}
+
+func (noopFlushCounter) FlushCount() uint64 { return 0 }
+
 // Updater handles auto-update logic.
 type Updater struct {
 	currentVersion string
@@ -95,6 +100,63 @@ func New(currentVersion, binaryPath string, logger *slog.Logger, fc FlushCounter
 		flushCounter:   fc,
 		sf:             NewStateFile(DefaultStatePath, logger),
 	}
+}
+
+// NewForManualUpdate creates an Updater for the `telemetron update` command.
+// It has no FlushCounter — manual updates skip the confirmation state machine
+// and rely on the caller to restart the service explicitly.
+func NewForManualUpdate(currentVersion, binaryPath string) *Updater {
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
+	return &Updater{
+		currentVersion: currentVersion,
+		binaryPath:     binaryPath,
+		logger:         logger,
+		client:         &http.Client{Timeout: 60 * time.Second},
+		flushCounter:   noopFlushCounter{},
+		sf:             NewStateFile(DefaultStatePath, logger),
+	}
+}
+
+// ApplyRelease downloads, verifies, and installs a release. This is the
+// entry point for manual `telemetron update`. Unlike the auto-updater,
+// it does not set update_pending state (the caller restarts the service
+// explicitly).
+func (u *Updater) ApplyRelease(ctx context.Context, rel *Release) error {
+	return u.applyCore(ctx, rel, nil)
+}
+
+// applyCore is the shared stage → backup → rename pipeline.
+// If beforeRename is non-nil it runs after backup succeeds but before
+// the binary is swapped — this is the hook point for persisting
+// update_pending state in the auto-updater path.
+func (u *Updater) applyCore(ctx context.Context, rel *Release, beforeRename func() error) error {
+	stagedBinary, cleanup, err := u.stage(ctx, rel)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	if err := u.backupCurrent(); err != nil {
+		return err
+	}
+
+	if beforeRename != nil {
+		if err := beforeRename(); err != nil {
+			return err
+		}
+	}
+
+	if err := os.Rename(stagedBinary, u.binaryPath); err != nil {
+		return fmt.Errorf("rename staged binary: %w", err)
+	}
+
+	u.logger.Info("binary replaced",
+		slog.String("event", "update_applied"),
+		slog.String("from", u.currentVersion),
+		slog.String("to", rel.TagName),
+		slog.String("prev", u.binaryPath+".prev"))
+
+	return nil
 }
 
 // IsManagedInstall checks if the running binary is in the managed path.
@@ -281,43 +343,29 @@ func (u *Updater) check(ctx context.Context) int {
 // ---------- Download, verify, apply ----------
 
 func (u *Updater) downloadAndApply(ctx context.Context, rel *Release) error {
-	stagedBinary, cleanup, err := u.stage(ctx, rel)
-	if err != nil {
-		return err
-	}
-	defer cleanup()
-
-	if err := u.backupCurrent(); err != nil {
-		return err
-	}
-
-	// Persist update_pending BEFORE the binary swap
-	if err := u.sf.Update(func(s *State) {
-		s.UpdatePending = true
-		s.UpdateStarted = false
-		s.PendingVersion = rel.TagName
-		s.LastUpdate = time.Now().UTC()
-		s.PreviousVersion = u.currentVersion
-		s.CurrentVersion = strings.TrimPrefix(rel.TagName, "v")
-	}); err != nil {
-		return fmt.Errorf("persist update_pending state: %w", err)
-	}
-
-	// Atomic rename staged → binary
-	if err := os.Rename(stagedBinary, u.binaryPath); err != nil {
-		u.sf.UpdateBestEffort(func(s *State) {
-			s.UpdatePending = false
+	persistPending := func() error {
+		return u.sf.Update(func(s *State) {
+			s.UpdatePending = true
 			s.UpdateStarted = false
-			s.PendingVersion = ""
+			s.PendingVersion = rel.TagName
+			s.LastUpdate = time.Now().UTC()
+			s.PreviousVersion = u.currentVersion
+			s.CurrentVersion = strings.TrimPrefix(rel.TagName, "v")
 		})
-		return fmt.Errorf("rename staged binary: %w", err)
 	}
 
-	u.logger.Info("binary replaced",
-		slog.String("event", "update_applied"),
-		slog.String("from", u.currentVersion),
-		slog.String("to", rel.TagName),
-		slog.String("prev", u.binaryPath+".prev"))
+	if err := u.applyCore(ctx, rel, persistPending); err != nil {
+		// Clear pending state if it was written but rename failed
+		state := u.sf.Get()
+		if state.UpdatePending {
+			u.sf.UpdateBestEffort(func(s *State) {
+				s.UpdatePending = false
+				s.UpdateStarted = false
+				s.PendingVersion = ""
+			})
+		}
+		return err
+	}
 
 	return nil
 }
