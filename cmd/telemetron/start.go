@@ -12,6 +12,7 @@ import (
 
 	"github.com/inceptionstack/telemetron/internal/collectorapi"
 	"github.com/inceptionstack/telemetron/internal/config"
+	"github.com/inceptionstack/telemetron/internal/openclaw"
 	"github.com/inceptionstack/telemetron/internal/otlp"
 	"github.com/inceptionstack/telemetron/internal/status"
 	"github.com/inceptionstack/telemetron/internal/telemetry"
@@ -101,11 +102,16 @@ func newStartCmd() *cobra.Command {
 }
 
 func declaredForExporter(cfg config.Config, logger *slog.Logger) map[string]string {
+	// Detect openclaw version if not explicitly configured
+	packVersion := cfg.Declared.PackVersion
+	if packVersion == "" {
+		packVersion = openclaw.DetectVersion()
+	}
 	declared := map[string]string{
 		"deployment_id": cfg.Declared.DeploymentID,
 		"tier":          cfg.Declared.Tier,
 		"environment":   cfg.Declared.Environment,
-		"pack_version":  cfg.Declared.PackVersion,
+		"pack_version":  packVersion,
 	}
 	installID, err := readInstallID(setupInstallIDPath)
 	if err != nil {
