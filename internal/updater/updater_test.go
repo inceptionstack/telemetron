@@ -61,7 +61,9 @@ func newTestUpdater(t *testing.T, opts ...func(*Updater)) *Updater {
 
 func TestUpdaterCheckNoUpdate(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(Release{TagName: "v0.3.6"})
+		if err := json.NewEncoder(w).Encode(Release{TagName: "v0.3.6"}); err != nil {
+			t.Errorf("encode: %v", err)
+		}
 	}))
 	defer srv.Close()
 
@@ -79,9 +81,13 @@ func TestUpdaterCheckNoUpdate(t *testing.T) {
 func TestUpdaterDownloadAndApply(t *testing.T) {
 	dir := t.TempDir()
 	binDir := filepath.Join(dir, "bin")
-	os.MkdirAll(binDir, 0o755)
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	binaryPath := filepath.Join(binDir, "telemetron")
-	os.WriteFile(binaryPath, []byte("old-binary"), 0o755)
+	if err := os.WriteFile(binaryPath, []byte("old-binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	archiveBuf := createTestArchive(t, "new-binary-content")
 
@@ -90,11 +96,11 @@ func TestUpdaterDownloadAndApply(t *testing.T) {
 		hash, runtime.GOOS, runtime.GOARCH)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/archive":
-			w.Write(archiveBuf)
-		case r.URL.Path == "/checksums":
-			w.Write([]byte(checksumLine))
+		switch r.URL.Path {
+		case "/archive":
+			_, _ = w.Write(archiveBuf)
+		case "/checksums":
+			_, _ = w.Write([]byte(checksumLine))
 		}
 	}))
 	defer srv.Close()
@@ -119,8 +125,7 @@ func TestUpdaterDownloadAndApply(t *testing.T) {
 		},
 	}
 
-	err := u.downloadAndApply(context.Background(), rel)
-	if err != nil {
+	if err := u.downloadAndApply(context.Background(), rel); err != nil {
 		t.Fatalf("downloadAndApply: %v", err)
 	}
 
@@ -162,12 +167,13 @@ func TestConfirmUpdate(t *testing.T) {
 	logger := testLogger()
 
 	sf := NewStateFile(statePath, logger)
-	// Pre-populate state
-	sf.Update(func(s *State) {
+	if err := sf.Update(func(s *State) {
 		s.UpdatePending = true
 		s.UpdateStarted = true
 		s.PendingVersion = "v0.3.7"
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	u := &Updater{
 		currentVersion: "v0.3.7",
@@ -196,21 +202,28 @@ func TestCheckRollback(t *testing.T) {
 	dir := t.TempDir()
 	statePath := filepath.Join(dir, "update-state.json")
 	binDir := filepath.Join(dir, "bin")
-	os.MkdirAll(binDir, 0o755)
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	binPath := filepath.Join(binDir, "telemetron")
 	prevPath := binPath + ".prev"
 
-	// Write state with update_pending=true, update_started=true
 	logger := testLogger()
 	sf := NewStateFile(statePath, logger)
-	sf.Update(func(s *State) {
+	if err := sf.Update(func(s *State) {
 		s.UpdatePending = true
 		s.UpdateStarted = true
 		s.PendingVersion = "v0.3.7"
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 
-	os.WriteFile(binPath, []byte("bad-new"), 0o755)
-	os.WriteFile(prevPath, []byte("good-old"), 0o755)
+	if err := os.WriteFile(binPath, []byte("bad-new"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(prevPath, []byte("good-old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	rolledBack := checkRollback(logger, statePath, binPath)
 
@@ -219,15 +232,23 @@ func TestCheckRollback(t *testing.T) {
 	}
 
 	// Binary should be restored
-	data, _ := os.ReadFile(binPath)
+	data, err := os.ReadFile(binPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if string(data) != "good-old" {
 		t.Errorf("binary = %q, want good-old", data)
 	}
 
-	// State should be cleared
-	stateData, _ := os.ReadFile(statePath)
+	// State should be cleared — read from disk
+	stateData, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var s State
-	json.Unmarshal(stateData, &s)
+	if err := json.Unmarshal(stateData, &s); err != nil {
+		t.Fatal(err)
+	}
 	if s.UpdatePending {
 		t.Error("expected update_pending=false after rollback")
 	}
@@ -276,8 +297,8 @@ func createTestArchive(t *testing.T, content string) []byte {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(f.Name())
-	defer f.Close()
+	name := f.Name()
+	defer func() { _ = os.Remove(name) }()
 
 	gw := gzip.NewWriter(f)
 	tw := tar.NewWriter(gw)
@@ -287,13 +308,23 @@ func createTestArchive(t *testing.T, content string) []byte {
 		Mode: 0o755,
 		Size: int64(len(content)),
 	}
-	tw.WriteHeader(hdr)
-	tw.Write([]byte(content))
-	tw.Close()
-	gw.Close()
-	f.Close()
+	if err := tw.WriteHeader(hdr); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write([]byte(content)); err != nil {
+		t.Fatal(err)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 
-	data, err := os.ReadFile(f.Name())
+	data, err := os.ReadFile(name)
 	if err != nil {
 		t.Fatal(err)
 	}

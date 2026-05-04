@@ -344,9 +344,9 @@ func (u *Updater) stage(ctx context.Context, rel *Release) (binaryPath string, c
 	stagedBinary := filepath.Join(stagingDir, "telemetron")
 
 	cleanupFn := func() {
-		os.Remove(archivePath)
-		os.Remove(checksumsPath)
-		os.Remove(stagedBinary) // may already be gone after rename
+		_ = os.Remove(archivePath)
+		_ = os.Remove(checksumsPath)
+		_ = os.Remove(stagedBinary) // may already be gone after rename
 	}
 
 	if err := u.download(ctx, archive.BrowserDownloadURL, archivePath); err != nil {
@@ -429,17 +429,17 @@ func (u *Updater) download(ctx context.Context, url, dest string) error {
 
 	n, err := io.Copy(f, io.LimitReader(resp.Body, maxDownloadBytes))
 	if err != nil {
-		f.Close()
-		os.Remove(dest)
+		_ = f.Close()
+		_ = os.Remove(dest)
 		return err
 	}
 	if n == maxDownloadBytes {
-		f.Close()
-		os.Remove(dest)
+		_ = f.Close()
+		_ = os.Remove(dest)
 		return fmt.Errorf("download truncated at %d bytes limit", maxDownloadBytes)
 	}
 	if err := f.Close(); err != nil {
-		os.Remove(dest)
+		_ = os.Remove(dest)
 		return err
 	}
 	return nil
@@ -487,7 +487,7 @@ func extractBinary(archivePath, dest string) error {
 	if err != nil {
 		return err
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 
 	tr := tar.NewReader(gz)
 	for {
@@ -505,13 +505,13 @@ func extractBinary(archivePath, dest string) error {
 			}
 			n, err := io.Copy(out, io.LimitReader(tr, maxExtractBytes))
 			if err != nil {
-				out.Close()
-				os.Remove(dest)
+				_ = out.Close()
+				_ = os.Remove(dest)
 				return err
 			}
 			if n == maxExtractBytes {
-				out.Close()
-				os.Remove(dest)
+				_ = out.Close()
+				_ = os.Remove(dest)
 				return fmt.Errorf("extracted binary truncated at %d bytes limit", maxExtractBytes)
 			}
 			return out.Close()
