@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -111,6 +112,7 @@ func loadTokenOrEnroll(ctx context.Context, r resolvedSetup, cfg config.Config) 
 	}
 
 	client := newEnrollClient(firstNonEmpty(strings.TrimSpace(os.Getenv("TELEMETRON_ENROLL_ENDPOINT")), DefaultEnrollEndpoint), nil)
+	info := readInstallerInfo()
 	resp, err := client.Enroll(ctx, enroll.EnrollRequest{
 		InstallID:         installID,
 		MachineID:         machineIDValue,
@@ -119,6 +121,7 @@ func loadTokenOrEnroll(ctx context.Context, r resolvedSetup, cfg config.Config) 
 		Source:            "telemetron-standalone",
 		TelemetronVersion: version,
 		Pack:              cfg.Mode,
+		Tier:              firstNonEmpty(cfg.Declared.Tier, info.Tier),
 	})
 	if err != nil {
 		if errors.Is(err, enroll.ErrConflict) {
@@ -130,4 +133,31 @@ func loadTokenOrEnroll(ctx context.Context, r resolvedSetup, cfg config.Config) 
 		return "", "", fmt.Errorf("auto-enroll returned mismatched install_id %q", resp.InstallID)
 	}
 	return resp.Token, "auto-enroll", nil
+}
+
+// installerInfo holds metadata written by the lowkey installer.
+type installerInfo struct {
+	Tier string
+}
+
+// readInstallerInfo reads tier from the lowkey installer's tier file.
+// Checks ~/.lowkey/tier and ~/.loki/tier (plain text, one line).
+// Returns zero-value struct on any failure.
+func readInstallerInfo() installerInfo {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return installerInfo{}
+	}
+	for _, dir := range []string{".lowkey", ".loki"} {
+		path := filepath.Join(home, dir, "tier")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		tier := strings.TrimSpace(string(data))
+		if tier != "" {
+			return installerInfo{Tier: tier}
+		}
+	}
+	return installerInfo{}
 }
