@@ -30,8 +30,8 @@ const (
 	// after a binary update.
 	ExitCodeUpdate = 64
 
-	defaultIntervalMinutes = 720 // 12 hours
-	initialJitterMax       = 30 * time.Minute
+	defaultIntervalMinutes = 30 // 30 minutes
+	initialJitterMax       = 5 * time.Minute
 	shortJitterMax         = 5 * time.Minute
 	confirmFlushes         = 3
 	maxDownloadBytes       = 500 << 20 // 500 MB

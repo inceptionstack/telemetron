@@ -262,8 +262,8 @@ func TestConfigDefaults(t *testing.T) {
 	if !c.IsEnabled() {
 		t.Error("expected default enabled=true")
 	}
-	if c.Interval() != 720*time.Minute {
-		t.Errorf("expected 720m, got %v", c.Interval())
+	if c.Interval() != 30*time.Minute {
+		t.Errorf("expected 30m, got %v", c.Interval())
 	}
 }
 
