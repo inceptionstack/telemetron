@@ -5,13 +5,17 @@ package main
 import (
 	"bytes"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/inceptionstack/telemetron/internal/agentdetect"
 	"github.com/inceptionstack/telemetron/internal/config"
+	"github.com/inceptionstack/telemetron/internal/enroll"
 	"github.com/inceptionstack/telemetron/internal/service"
 	"github.com/inceptionstack/telemetron/internal/status"
 )
@@ -383,6 +387,240 @@ func TestRunSetup_EmitsProgressSteps(t *testing.T) {
 	}
 }
 
+func TestRunSetup_AutoEnrollOptOutSkipsServiceStart(t *testing.T) {
+	resetEnv(t)
+	t.Setenv("TELEMETRON_NO_AUTO_ENROLL", "1")
+	t.Setenv("TELEMETRON_CONFIG", t.TempDir()+"/config.yaml")
+
+	prevPlatform := setupPlatform
+	prevGeteuid := setupGeteuid
+	prevPrecondition := setupServicePrecondition
+	prevNewService := newSetupService
+	prevSetupTokenPath := setupTokenPath
+	t.Cleanup(func() {
+		setupPlatform = prevPlatform
+		setupGeteuid = prevGeteuid
+		setupServicePrecondition = prevPrecondition
+		newSetupService = prevNewService
+		setupTokenPath = prevSetupTokenPath
+	})
+
+	setupPlatform = "linux"
+	setupGeteuid = func() int { return 1000 }
+	setupServicePrecondition = func() error { return nil }
+	setupTokenPath = t.TempDir() + "/missing-token"
+	newSetupService = func() service.Service {
+		t.Fatal("service should not be constructed when auto-enroll is opted out")
+		return nil
+	}
+
+	cmd := newSetupCmd()
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	err := runSetup(cmd, &setupFlags{
+		nonInteractive: true,
+		yes:            true,
+		endpoint:       "https://example.test/v1/metrics",
+		mode:           "openclaw",
+		sessionDir:     "/tmp/sessions",
+		runAs:          "alice",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "TELEMETRON_NO_AUTO_ENROLL=1") {
+		t.Fatalf("expected opt-out message, got %q", stdout.String())
+	}
+}
+
+func TestRunSetup_AutoEnrollUsesEnrolledToken(t *testing.T) {
+	resetEnv(t)
+	t.Setenv("TELEMETRON_CONFIG", t.TempDir()+"/config.yaml")
+	enrolledToken := "lpk_enroll_" + strings.Repeat("0123456789abcdef", 4)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"token":"` + enrolledToken + `","install_id":"550e8400-e29b-41d4-a716-446655440000"}`))
+	}))
+	defer server.Close()
+
+	prevPlatform := setupPlatform
+	prevGeteuid := setupGeteuid
+	prevPrecondition := setupServicePrecondition
+	prevNewService := newSetupService
+	prevReadStatus := readSetupStatus
+	prevNewEnrollClient := newEnrollClient
+	prevReadOrGenerateInstallID := readOrGenerateInstallID
+	prevComputeMachineID := computeMachineID
+	prevSetupTokenPath := setupTokenPath
+	t.Cleanup(func() {
+		setupPlatform = prevPlatform
+		setupGeteuid = prevGeteuid
+		setupServicePrecondition = prevPrecondition
+		newSetupService = prevNewService
+		readSetupStatus = prevReadStatus
+		newEnrollClient = prevNewEnrollClient
+		readOrGenerateInstallID = prevReadOrGenerateInstallID
+		computeMachineID = prevComputeMachineID
+		setupTokenPath = prevSetupTokenPath
+	})
+
+	setupPlatform = "linux"
+	setupGeteuid = func() int { return 1000 }
+	setupServicePrecondition = func() error { return nil }
+	setupTokenPath = t.TempDir() + "/missing-token"
+	readSetupStatus = func() (status.Snapshot, error) {
+		return status.Snapshot{LastFlushAt: time.Now().UTC(), LastHTTPStatus: 200}, nil
+	}
+	newEnrollClient = func(endpoint string, httpClient *http.Client) *enroll.Client {
+		return enroll.NewClient(server.URL, server.Client())
+	}
+	readOrGenerateInstallID = func(path string) (string, error) {
+		return "550e8400-e29b-41d4-a716-446655440000", nil
+	}
+	computeMachineID = func() (string, error) {
+		return "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", nil
+	}
+
+	fake := &capturingSetupService{}
+	newSetupService = func() service.Service { return fake }
+
+	cmd := newSetupCmd()
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	err := runSetup(cmd, &setupFlags{
+		nonInteractive: true,
+		yes:            true,
+		endpoint:       "https://example.test/v1/metrics",
+		mode:           "openclaw",
+		sessionDir:     "/tmp/sessions",
+		runAs:          "alice",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.token != enrolledToken {
+		t.Fatalf("unexpected token passed to service: %q", fake.token)
+	}
+}
+
+func TestRunSetup_AutoEnrollWritesInstallIDAndTokenFiles(t *testing.T) {
+	resetEnv(t)
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+	installIDPath := filepath.Join(dir, "install-id")
+	tokenPath := filepath.Join(dir, "token")
+	t.Setenv("TELEMETRON_CONFIG", configPath)
+
+	enrolledToken := "lpk_enroll_" + strings.Repeat("0123456789abcdef", 4)
+	const installID = "550e8400-e29b-41d4-a716-446655440000"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"token":"` + enrolledToken + `","install_id":"` + installID + `"}`))
+	}))
+	defer server.Close()
+
+	prevPlatform := setupPlatform
+	prevGeteuid := setupGeteuid
+	prevPrecondition := setupServicePrecondition
+	prevNewService := newSetupService
+	prevReadStatus := readSetupStatus
+	prevNewEnrollClient := newEnrollClient
+	prevComputeMachineID := computeMachineID
+	prevReadOrGenerate := readOrGenerateInstallID
+	prevSetupInstallIDPath := setupInstallIDPath
+	prevSetupTokenPath := setupTokenPath
+	t.Cleanup(func() {
+		setupPlatform = prevPlatform
+		setupGeteuid = prevGeteuid
+		setupServicePrecondition = prevPrecondition
+		newSetupService = prevNewService
+		readSetupStatus = prevReadStatus
+		newEnrollClient = prevNewEnrollClient
+		computeMachineID = prevComputeMachineID
+		readOrGenerateInstallID = prevReadOrGenerate
+		setupInstallIDPath = prevSetupInstallIDPath
+		setupTokenPath = prevSetupTokenPath
+	})
+
+	setupPlatform = "linux"
+	setupGeteuid = func() int { return 1000 }
+	setupServicePrecondition = func() error { return nil }
+	readSetupStatus = func() (status.Snapshot, error) {
+		return status.Snapshot{LastFlushAt: time.Now().UTC(), LastHTTPStatus: 200}, nil
+	}
+	newEnrollClient = func(endpoint string, httpClient *http.Client) *enroll.Client {
+		return enroll.NewClient(server.URL, server.Client())
+	}
+	computeMachineID = func() (string, error) {
+		return "sha256:" + strings.Repeat("a", 64), nil
+	}
+	// Return the same install-id the fake server echoes, so the client's
+	// response-mismatch guard doesn't trip. Also persist to disk the way
+	// the real installid.ReadOrGenerate would, so the downstream file
+	// assertions remain meaningful.
+	readOrGenerateInstallID = func(path string) (string, error) {
+		if err := os.WriteFile(path, []byte(installID+"\n"), 0o644); err != nil {
+			return "", err
+		}
+		return installID, nil
+	}
+	setupInstallIDPath = installIDPath
+	setupTokenPath = tokenPath
+	newSetupService = func() service.Service {
+		// Use a tempdir-aware service stub that writes the token to the
+		// path this test controls, rather than cfg.TokenFile (which would
+		// default to the real /etc/telemetron/token). This mirrors what
+		// the production service does, scoped to the test tempdir.
+		return &tempdirWritingSetupService{tokenPath: tokenPath}
+	}
+
+	cmd := newSetupCmd()
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stdout)
+
+	err := runSetup(cmd, &setupFlags{
+		nonInteractive: true,
+		yes:            true,
+		endpoint:       "https://example.test/v1/metrics",
+		mode:           "openclaw",
+		sessionDir:     "/tmp/sessions",
+		runAs:          "alice",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	installData, err := os.ReadFile(installIDPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(installData)) != installID {
+		t.Fatalf("unexpected install-id contents: %q", string(installData))
+	}
+	tokenData, err := os.ReadFile(tokenPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(tokenData) != enrolledToken {
+		t.Fatalf("unexpected token contents: %q", string(tokenData))
+	}
+	if info, err := os.Stat(installIDPath); err != nil {
+		t.Fatal(err)
+	} else if info.Mode().Perm() != 0o644 {
+		t.Fatalf("unexpected install-id perms: %o", info.Mode().Perm())
+	}
+	if info, err := os.Stat(tokenPath); err != nil {
+		t.Fatal(err)
+	} else if info.Mode().Perm() != 0o400 {
+		t.Fatalf("unexpected token perms: %o", info.Mode().Perm())
+	}
+}
+
 type fakeSetupService struct{}
 
 func (fakeSetupService) Install(config.Config, string) error           { return nil }
@@ -390,6 +628,37 @@ func (fakeSetupService) InstallAs(config.Config, string, string) error { return 
 func (fakeSetupService) Uninstall() error                              { return nil }
 func (fakeSetupService) EnableAndStart() error                         { return nil }
 func (fakeSetupService) ProbeStatus() (service.Status, error)          { return service.Status{}, nil }
+
+type capturingSetupService struct {
+	token string
+}
+
+func (s *capturingSetupService) Install(config.Config, string) error { return nil }
+func (s *capturingSetupService) InstallAs(_ config.Config, token, _ string) error {
+	s.token = token
+	return nil
+}
+func (s *capturingSetupService) Uninstall() error                     { return nil }
+func (s *capturingSetupService) EnableAndStart() error                { return nil }
+func (s *capturingSetupService) ProbeStatus() (service.Status, error) { return service.Status{}, nil }
+
+// tempdirWritingSetupService persists the token to a caller-supplied
+// path rather than cfg.TokenFile. Used by tests that want to verify the
+// enrollment → install → token-on-disk flow without pre-seeding config.
+type tempdirWritingSetupService struct {
+	tokenPath string
+}
+
+func (tempdirWritingSetupService) Install(config.Config, string) error { return nil }
+func (s tempdirWritingSetupService) InstallAs(_ config.Config, token, _ string) error {
+	if err := os.MkdirAll(filepath.Dir(s.tokenPath), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(s.tokenPath, []byte(token), 0o400)
+}
+func (tempdirWritingSetupService) Uninstall() error                     { return nil }
+func (tempdirWritingSetupService) EnableAndStart() error                { return nil }
+func (tempdirWritingSetupService) ProbeStatus() (service.Status, error) { return service.Status{}, nil }
 
 func TestDefaultDeploymentID(t *testing.T) {
 	if got := defaultDeploymentID("main"); !startsWithLokiPrefix(got) {
@@ -460,13 +729,70 @@ func TestResolveHealthTimeout_RejectsInvalidValues(t *testing.T) {
 
 // --- helpers ------------------------------------------------------------
 
+// TestLoadExistingConfigReturnsNilWhenNoConfigFileOnDisk is a regression
+// test for the v0.3.0-enrollment show-stopper discovered on a clean
+// host (2026-05-03): config.Load returns a fully-defaulted Config{}
+// whenever ValidateBootstrap is satisfied — including the case where
+// TELEMETRON_ENDPOINT is set in the environment and no config file
+// exists on disk. loadExistingConfig used to report a non-nil
+// "existing install" in that case, and its default TokenFile
+// (/etc/telemetron/token) got assigned to r.tokenFile. That tripped
+// the tokenFile branch in loadTokenOrEnroll and auto-enroll never ran
+// on a fresh install — the primary use case of v0.3.0.
+//
+// If this test starts failing, setup will regress to "token_read_failed"
+// on every first-time install where TELEMETRON_ENDPOINT is exported
+// (which is the path every bundled installer uses).
+func TestLoadExistingConfigReturnsNilWhenNoConfigFileOnDisk(t *testing.T) {
+	resetEnv(t)
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "config.yaml")
+	t.Setenv("TELEMETRON_CONFIG", missing)
+	// Mirror the auto-enroll path: endpoint is set by the installer
+	// before setup runs, which makes config.Load's ValidateBootstrap
+	// pass with only defaults — the exact scenario that used to return
+	// a spurious non-nil Config from loadExistingConfig.
+	t.Setenv("TELEMETRON_ENDPOINT", "https://example.test/v1/metrics")
+	t.Setenv("TELEMETRON_MODE", "openclaw")
+
+	if got := loadExistingConfig(); got != nil {
+		t.Fatalf("loadExistingConfig() = %#v; want nil when %s does not exist", got, missing)
+	}
+}
+
+// TestLoadExistingConfigReturnsConfigWhenFileExists keeps the happy path
+// covered so the fix above doesn't silently over-correct and break the
+// "reconcile against an existing install" behaviour.
+func TestLoadExistingConfigReturnsConfigWhenFileExists(t *testing.T) {
+	resetEnv(t)
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	tokenPath := filepath.Join(dir, "token")
+	if err := os.WriteFile(cfgPath, []byte("mode: openclaw\nendpoint: https://example.test\ntoken_file: "+tokenPath+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TELEMETRON_CONFIG", cfgPath)
+
+	got := loadExistingConfig()
+	if got == nil {
+		t.Fatalf("loadExistingConfig() = nil; want *config.Config when %s exists", cfgPath)
+	}
+	if got.Endpoint != "https://example.test" {
+		t.Fatalf("Endpoint = %q; want https://example.test", got.Endpoint)
+	}
+	if got.TokenFile != tokenPath {
+		t.Fatalf("TokenFile = %q; want %q", got.TokenFile, tokenPath)
+	}
+}
+
 func resetEnv(t *testing.T) {
 	t.Helper()
 	for _, k := range []string{
 		"TELEMETRON_ENDPOINT", "TELEMETRON_TOKEN", "TELEMETRON_TOKEN_FILE",
 		"TELEMETRON_MODE", "TELEMETRON_SESSION_DIR", "TELEMETRON_RUN_AS",
 		"TELEMETRON_DEPLOYMENT_ID", "TELEMETRON_TIER", "TELEMETRON_HEALTH_TIMEOUT",
-		"SUDO_USER",
+		"TELEMETRON_NO_AUTO_ENROLL", "TELEMETRON_ENROLL_ENDPOINT", "SUDO_USER",
+		"TELEMETRON_CONFIG",
 	} {
 		t.Setenv(k, "")
 	}

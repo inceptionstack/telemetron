@@ -7,6 +7,23 @@ and this project aims to follow [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-03
+
+### Added
+
+- Anonymous enrollment for `telemetron setup` when no existing token source is present. The client now generates or reuses `/etc/telemetron/install-id`, computes a host `machine_id`, calls `POST /v1/enroll`, and uses the returned `lpk_enroll_*` token for setup.
+- New internal packages: `internal/enroll`, `internal/installid`, and `internal/machineid`, each with standalone tests and frozen interop vectors for the shared `machine_id` algorithm.
+- `docs/privacy.md`, documenting the exact enrollment payload, flush-time `install_id` resource attribute, explicit non-goals, file-permission rationale, and `TELEMETRON_NO_AUTO_ENROLL=1`.
+
+### Changed
+
+- `telemetron start` now best-effort loads `/etc/telemetron/install-id` at startup and attaches it as the `install_id` OTLP resource attribute on every flush.
+- `telemetron setup` now skips anonymous enrollment when an existing token file, `TELEMETRON_TOKEN`, or `TELEMETRON_TOKEN_FILE` is already in play, preserving prior precedence. When `TELEMETRON_TOKEN_SECRET` is set but no token has been staged (e.g. `setup` was invoked directly instead of via `install.sh`), the command now hard-fails with `ErrTokenSecretNotResolved` rather than silently downgrading to anonymous auto-enroll.
+
+### Notes
+
+- Auto-enrollment can be bypassed with `TELEMETRON_NO_AUTO_ENROLL=1`.
+
 ### Added
 
 - **`telemetron setup` subcommand** — non-interactive-first reconciler that
