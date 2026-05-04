@@ -522,6 +522,18 @@ func extractBinary(archivePath, dest string) error {
 
 // ---------- Update confirmation ----------
 
+// ConfirmIfPending starts the confirmation goroutine if an update is
+// pending. This should be called even when auto-update checks are
+// disabled, so that a pending update gets confirmed and the flag
+// cleared — preventing false rollback on next restart.
+func (u *Updater) ConfirmIfPending(ctx context.Context) {
+	u.sf.Load()
+	state := u.sf.Get()
+	if state.UpdatePending && state.UpdateStarted {
+		go u.confirmUpdate(ctx)
+	}
+}
+
 func (u *Updater) confirmUpdate(ctx context.Context) {
 	u.confirmUpdateWithInterval(ctx, 15*time.Second)
 }

@@ -69,15 +69,22 @@ func newStartCmd() *cobra.Command {
 
 			// Start auto-updater in background if this is a managed install
 			updateCh := make(chan int, 1)
-			if updater.IsManagedInstall() && cfg.AutoUpdate.IsEnabled() {
+			if updater.IsManagedInstall() {
 				up := updater.New(version, updater.ManagedBinaryPath, logger, store)
-				go func() {
-					if code := up.Run(ctx, cfg.AutoUpdate); code == updater.ExitCodeUpdate {
-						logger.Info("auto-update applied, requesting shutdown", slog.Int("exit_code", code))
-						updateCh <- code
-						cancel()
-					}
-				}()
+				if cfg.AutoUpdate.IsEnabled() {
+					go func() {
+						if code := up.Run(ctx, cfg.AutoUpdate); code == updater.ExitCodeUpdate {
+							logger.Info("auto-update applied, requesting shutdown", slog.Int("exit_code", code))
+							updateCh <- code
+							cancel()
+						}
+					}()
+				} else {
+					// Even with updates disabled, confirm any pending update
+					// so the pending flag gets cleared and doesn't cause a
+					// false rollback on next restart.
+					up.ConfirmIfPending(ctx)
+				}
 			}
 
 			err = collector.Start(ctx, sink)
