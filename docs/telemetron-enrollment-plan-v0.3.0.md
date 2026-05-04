@@ -50,7 +50,7 @@ On first `telemetron setup` with no token sources present:
 1. Generate `install_id` (UUIDv4, `/proc/sys/kernel/random/uuid` or `crypto/rand`)
 2. Write to `/etc/telemetron/install-id` (mode 0644, non-secret)
 3. Compute `machine_id` using the **same algorithm as lowkey** (`sha256:` + sha256(`/etc/machine-id` or fallback + `:hostname`)) — so a standalone telemetron install can later be correlated by machine_id if the box also gets lowkey installed
-4. `POST /v1/enroll` with `{install_id, machine_id, os, arch, telemetron_version}`
+4. `POST /v1/enroll` with `{install_id, machine_id, os, arch, telemetron_version, pack}`
 5. Receive `{token, install_id}` → write token to `/etc/telemetron/token` (mode 0400)
 6. Continue normal setup
 
@@ -166,7 +166,7 @@ For this to work cleanly, ingest promotes `install_id` from the OTel resource-at
 
 ## Privacy
 
-**Sent at enroll time:** install_id, machine_id (salted hash), os, arch, telemetron_version, source.
+**Sent at enroll time:** install_id, machine_id (salted hash), os, arch, telemetron_version, source, pack.
 **Sent at flush time:** existing OTLP metrics + install_id as a resource attribute (which the server will overwrite with the authoritative bound value — client's copy is a join hint only, never trusted).
 **Never sent:** hostname, username, home paths, MAC, kernel version, session content.
 

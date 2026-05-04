@@ -11,6 +11,7 @@
 - `arch`
 - `source`
 - `telemetron_version`
+- `pack` (the configured mode, e.g. `openclaw`)
 
 ## What we send at flush time
 

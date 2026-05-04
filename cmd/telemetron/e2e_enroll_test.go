@@ -210,12 +210,16 @@ func (s *e2eBackendState) handleEnroll(t *testing.T, w http.ResponseWriter, r *h
 		Arch              string `json:"arch"`
 		Source            string `json:"source"`
 		TelemetronVersion string `json:"telemetron_version"`
+		Pack              string `json:"pack"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode enroll request: %v", err)
 	}
 	if payload.Schema != "lowkey.enroll.v1" {
 		t.Fatalf("unexpected schema: %q", payload.Schema)
+	}
+	if payload.Pack == "" {
+		t.Fatal("expected non-empty pack in enroll request")
 	}
 	if existing, ok := s.enrollmentsByInstallID[payload.InstallID]; ok {
 		if existing.MachineID != payload.MachineID || existing.Revoked {
