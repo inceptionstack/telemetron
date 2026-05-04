@@ -5,11 +5,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/inceptionstack/telemetron/internal/fsatomic"
 	"github.com/inceptionstack/telemetron/internal/updater"
 	"github.com/spf13/cobra"
 )
@@ -55,11 +57,21 @@ applying.`,
 				return nil
 			}
 
-			up := updater.NewForManualUpdate(version, updater.ResolveBinaryPath())
+			up := updater.NewForManualUpdate(version, updater.ManagedBinaryPath)
 
 			fmt.Fprintf(cmd.OutOrStdout(), "downloading %s...\n", rel.TagName)
 			if err := up.ApplyRelease(ctx, rel); err != nil {
 				return fmt.Errorf("update failed: %w", err)
+			}
+
+			// Also update legacy path so `telemetron version` from
+			// /usr/local/bin shows the correct version.
+			if data, err := os.ReadFile(updater.ManagedBinaryPath); err == nil {
+				if err := fsatomic.WriteFile(updater.LegacyBinaryPath, data, fsatomic.WithMode(0o755)); err != nil {
+					slog.Warn("failed to sync legacy binary",
+						slog.String("path", updater.LegacyBinaryPath),
+						slog.String("error", err.Error()))
+				}
 			}
 
 			fmt.Fprintf(cmd.OutOrStdout(), "updated %s → %s\n", version, rel.TagName)
