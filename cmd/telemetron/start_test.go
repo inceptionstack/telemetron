@@ -33,7 +33,7 @@ func TestDeclaredForExporterIncludesInstallIDWhenPresent(t *testing.T) {
 	declared := declaredForExporter(config.Config{
 		Declared: config.DeclaredConfig{
 			DeploymentID: "dep",
-			Tier:         "production",
+			Tier:         "external",
 			Environment:  "prod",
 			PackVersion:  "0.3.0",
 		},

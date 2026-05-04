@@ -24,9 +24,10 @@ import (
 )
 
 type Collector struct {
-	cfg   Config
-	store *status.Store
-	state State
+	cfg            Config
+	store           *status.Store
+	state           State
+	lastDataSeenAt  time.Time // when the most recent new session data was read
 }
 
 type Config struct {
@@ -83,7 +84,9 @@ func (c *Collector) Start(ctx context.Context, sink collectorapi.MetricSink) err
 		case <-ctx.Done():
 			_ = SaveState(c.cfg.StateFile, c.state)
 			flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			sink.Counter(contract.MetricEmitterHeartbeat, nil)
+			if !c.lastDataSeenAt.IsZero() && time.Since(c.lastDataSeenAt) < 35*time.Minute {
+				sink.Counter(contract.MetricEmitterHeartbeat, nil)
+			}
 			_, _ = sink.Flush(flushCtx)
 			cancel()
 			return nil
@@ -92,7 +95,9 @@ func (c *Collector) Start(ctx context.Context, sink collectorapi.MetricSink) err
 				return err
 			}
 		case <-flushTimer.C:
-			sink.Counter(contract.MetricEmitterHeartbeat, nil)
+			if !c.lastDataSeenAt.IsZero() && time.Since(c.lastDataSeenAt) < 35*time.Minute {
+				sink.Counter(contract.MetricEmitterHeartbeat, nil)
+			}
 			result, err := sink.Flush(ctx)
 			_ = SaveState(c.cfg.StateFile, c.state)
 			nextFlushDelay = c.cfg.FlushInterval
@@ -119,14 +124,22 @@ func (c *Collector) ReportStatus(_ context.Context) []collectorapi.StatusLine {
 func (c *Collector) scan(sink collectorapi.MetricSink) error {
 	entries, err := filepath.Glob(filepath.Join(c.cfg.SessionDir, "*.jsonl"))
 	if err != nil {
+		
 		return err
 	}
+	var hadNewData bool
+
 	sort.Strings(entries)
 	for _, path := range entries {
+		prevOffset := c.state.Files[path].Offset
 		if err := c.scanFile(path, sink); err != nil {
 			return err
 		}
+		if c.state.Files[path].Offset > prevOffset {
+			hadNewData = true
+		}
 	}
+	if hadNewData { c.lastDataSeenAt = time.Now() }
 	return SaveState(c.cfg.StateFile, c.state)
 }
 

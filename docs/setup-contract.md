@@ -43,8 +43,8 @@ Inferred inputs (never a missing-field error in non-interactive mode):
   `--session-dir` to disambiguate.
 - `deployment-id` — default `loki@<hostname>` (or
   `loki-<agent>@<hostname>` when detected agent is not `main`).
-- `tier` — heuristic (`development` for interactive sudo, `production`
-  otherwise). Overridable via `--tier`.
+- `tier` — `external` by default, `internal` or `test` if tier file
+  says so. Overridable via `--tier`.
 
 ## JSON event stream
 
@@ -109,7 +109,7 @@ export TELEMETRON_TOKEN_FILE="/run/secrets/telemetron-token"
 
 telemetron setup --non-interactive --json --yes \
   --deployment-id "$(hostname)" \
-  --tier production \
+  --tier external \
   | while read -r line; do
       event=$(jq -r '.event' <<<"$line")
       case "$event" in

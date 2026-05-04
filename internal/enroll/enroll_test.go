@@ -240,6 +240,7 @@ func validRequest() EnrollRequest {
 		Source:            "telemetron-standalone",
 		TelemetronVersion: "0.3.0",
 		Pack:              "openclaw",
+		Tier:              "external",
 	}
 }
 

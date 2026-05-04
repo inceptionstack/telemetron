@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/user"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -111,6 +113,7 @@ func loadTokenOrEnroll(ctx context.Context, r resolvedSetup, cfg config.Config) 
 	}
 
 	client := newEnrollClient(firstNonEmpty(strings.TrimSpace(os.Getenv("TELEMETRON_ENROLL_ENDPOINT")), DefaultEnrollEndpoint), nil)
+	info := readInstallerInfo()
 	resp, err := client.Enroll(ctx, enroll.EnrollRequest{
 		InstallID:         installID,
 		MachineID:         machineIDValue,
@@ -119,6 +122,7 @@ func loadTokenOrEnroll(ctx context.Context, r resolvedSetup, cfg config.Config) 
 		Source:            "telemetron-standalone",
 		TelemetronVersion: version,
 		Pack:              cfg.Mode,
+		Tier:              firstNonEmpty(cfg.Declared.Tier, info.Tier),
 	})
 	if err != nil {
 		if errors.Is(err, enroll.ErrConflict) {
@@ -130,4 +134,43 @@ func loadTokenOrEnroll(ctx context.Context, r resolvedSetup, cfg config.Config) 
 		return "", "", fmt.Errorf("auto-enroll returned mismatched install_id %q", resp.InstallID)
 	}
 	return resp.Token, "auto-enroll", nil
+}
+
+// installerInfo holds metadata written by the lowkey installer.
+type installerInfo struct {
+	Tier string
+}
+
+// readInstallerInfo reads tier from the lowkey installer's tier file.
+// Checks ~/.lowkey/tier and ~/.loki/tier (plain text, one line).
+// Returns zero-value struct on any failure.
+func readInstallerInfo() installerInfo {
+	// Check multiple home directories: current user, SUDO_USER, and
+	// TELEMETRON_RUN_AS (the service user — when running in UserData as root,
+	// SUDO_USER is unset but the tier file lives under the run_as user's home).
+	var homes []string
+	if h, err := os.UserHomeDir(); err == nil {
+		homes = append(homes, h)
+	}
+	for _, envKey := range []string{"SUDO_USER", "TELEMETRON_RUN_AS"} {
+		if u := strings.TrimSpace(os.Getenv(envKey)); u != "" && u != "root" {
+			if lu, err := user.Lookup(u); err == nil {
+				homes = append(homes, lu.HomeDir)
+			}
+		}
+	}
+	for _, home := range homes {
+		for _, dir := range []string{".lowkey", ".loki"} {
+			path := filepath.Join(home, dir, "tier")
+			data, err := os.ReadFile(path)
+			if err != nil {
+				continue
+			}
+			tier := strings.TrimSpace(string(data))
+			if tier == "internal" || tier == "external" || tier == "test" {
+				return installerInfo{Tier: tier}
+			}
+		}
+	}
+	return installerInfo{}
 }

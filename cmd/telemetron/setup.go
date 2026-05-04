@@ -91,7 +91,7 @@ on-disk state and restarts the service as needed.`,
 	cmd.Flags().StringVar(&f.sessionDir, "session-dir", "", "session directory; default: auto-detected (env: TELEMETRON_SESSION_DIR)")
 	cmd.Flags().StringVar(&f.runAs, "run-as", "", "OS user the service runs as; default: $SUDO_USER (env: TELEMETRON_RUN_AS)")
 	cmd.Flags().StringVar(&f.deploymentID, "deployment-id", "", "deployment id; default: loki@<hostname> (env: TELEMETRON_DEPLOYMENT_ID)")
-	cmd.Flags().StringVar(&f.tier, "tier", "", "deployment tier (env: TELEMETRON_TIER)")
+	cmd.Flags().StringVar(&f.tier, "tier", "", "internal|external|test (env: TELEMETRON_TIER)")
 	cmd.Flags().StringVar(&f.healthTimeout, "health-timeout", "", "health-check timeout; default: 60s (env: TELEMETRON_HEALTH_TIMEOUT)")
 	cmd.Flags().BoolVar(&f.insecureEndpoint, "insecure-endpoint", false, "allow http:// endpoints (testing only)")
 	cmd.Flags().BoolVar(&f.yes, "yes", false, "skip the confirmation prompt; the summary is still printed")
@@ -453,6 +453,9 @@ func resolveInputs(f *setupFlags, d agentdetect.Detection) (resolvedSetup, []str
 		r.deploymentID = defaultDeploymentID(d.AgentName)
 	}
 	if r.tier == "" {
+		r.tier = readInstallerInfo().Tier
+	}
+	if r.tier == "" {
 		r.tier = inferTier()
 	}
 
@@ -478,12 +481,7 @@ func defaultDeploymentID(agentName string) string {
 }
 
 func inferTier() string {
-	if sudo := strings.TrimSpace(os.Getenv("SUDO_USER")); sudo != "" && sudo != "root" {
-		if term.IsTerminal(int(os.Stdin.Fd())) {
-			return "development"
-		}
-	}
-	return "production"
+	return "external"
 }
 
 func hintForMissing(missing []string) string {

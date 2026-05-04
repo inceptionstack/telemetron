@@ -12,6 +12,7 @@
 - `source`
 - `telemetron_version`
 - `pack` (the configured mode, e.g. `openclaw`)
+- `tier` (deployment tier, e.g. `internal`, `external`, or `test`)
 
 ## What we send at flush time
 
@@ -20,7 +21,7 @@ Normal OTLP metric flushes send:
 - the existing OTLP metric payload produced by `telemetron`
 - `install_id` as an OTLP resource attribute
 - `deployment_id` as an OTLP resource attribute (operator-configured identity of the deployment)
-- `tier` as an OTLP resource attribute (operator-configured environment class: dev/staging/prod)
+- `tier` as an OTLP resource attribute (`internal`, `external`, or `test`)
 - `environment` as an OTLP resource attribute (operator-configured environment name)
 - `pack_version` as an OTLP resource attribute (version of the pack being observed)
 

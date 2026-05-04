@@ -101,7 +101,7 @@ func TestE2EEnrollAndMetricsFlow(t *testing.T) {
 		sessionDir:       filepath.Join(dir, "sessions"),
 		runAs:            "alice",
 		deploymentID:     "e2e-deployment",
-		tier:             "production",
+		tier:             "external",
 		insecureEndpoint: true, // httptest servers are http://
 	}
 	if err := runSetup(cmd, runArgs); err != nil {
@@ -147,7 +147,7 @@ func TestE2EEnrollAndMetricsFlow(t *testing.T) {
 		declaredForExporter(config.Config{
 			Declared: config.DeclaredConfig{
 				DeploymentID: "e2e-deployment",
-				Tier:         "production",
+				Tier:         "external",
 			},
 		}, slog.New(slog.NewTextHandler(io.Discard, nil))),
 		server.Client(),
@@ -211,6 +211,7 @@ func (s *e2eBackendState) handleEnroll(t *testing.T, w http.ResponseWriter, r *h
 		Source            string `json:"source"`
 		TelemetronVersion string `json:"telemetron_version"`
 		Pack              string `json:"pack"`
+		Tier              string `json:"tier"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		t.Fatalf("decode enroll request: %v", err)

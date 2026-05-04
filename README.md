@@ -108,7 +108,7 @@ run_as: your-user
 
 declared:
   deployment_id: loki@my-host
-  tier: production
+  tier: external
 
 openclaw:
   session_dir: /home/your-user/.openclaw/agents/main/sessions

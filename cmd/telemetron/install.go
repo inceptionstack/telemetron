@@ -122,7 +122,7 @@ reporting success.`,
 	cmd.Flags().StringVar(&tokenFile, "token-file", "", "path to a file containing the bearer token (env: TELEMETRON_TOKEN_FILE)")
 	cmd.Flags().StringVar(&mode, "mode", "", "collection mode (env: TELEMETRON_MODE, config: mode)")
 	cmd.Flags().StringVar(&deploymentID, "deployment-id", "", "deployment id (config: declared.deployment_id)")
-	cmd.Flags().StringVar(&tier, "tier", "", "internal|production|development|staging|unknown (config: declared.tier)")
+	cmd.Flags().StringVar(&tier, "tier", "", "internal|external|test (config: declared.tier)")
 	cmd.Flags().StringVar(&sessionDir, "session-dir", "", "session directory (config: <mode>.session_dir)")
 	cmd.Flags().BoolVar(&insecureEndpoint, "insecure-endpoint", false, "allow http:// endpoints for testing only (config: insecure_endpoint)")
 	cmd.Flags().StringVar(&runAs, "run-as", "", "OS user the systemd unit runs as (default: $SUDO_USER when invoked via sudo, else the system 'telemetron' user)")

@@ -75,7 +75,7 @@ func TestResolveInputs_FlagOverridesWin(t *testing.T) {
 		mode:         "openclaw",
 		sessionDir:   "/custom/sessions",
 		deploymentID: "my-deployment",
-		tier:         "production",
+		tier:         "external",
 		runAs:        "someone",
 	}
 	det := agentdetect.Detection{
@@ -96,7 +96,7 @@ func TestResolveInputs_FlagOverridesWin(t *testing.T) {
 	if r.deploymentID != "my-deployment" {
 		t.Errorf("deployment_id override lost: %q", r.deploymentID)
 	}
-	if r.tier != "production" {
+	if r.tier != "external" {
 		t.Errorf("tier override lost: %q", r.tier)
 	}
 }
@@ -111,7 +111,7 @@ mode: openclaw
 run_as: existing-user
 declared:
   deployment_id: existing-deployment
-  tier: production
+  tier: external
 openclaw:
   session_dir: /existing/sessions
 `), 0o644); err != nil {
@@ -272,7 +272,7 @@ run_as: existing-user
 token_file: `+tokenPath+`
 declared:
   deployment_id: existing-deployment
-  tier: production
+  tier: external
 openclaw:
   session_dir: /existing/sessions
 `) + "\n"

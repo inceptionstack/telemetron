@@ -92,7 +92,7 @@ Optional operator-supplied metadata attached as OTLP resource attributes for loc
 #### `declared.tier`
 
 - Type: string
-- Purpose: operator-defined tier label such as `development` or `production`
+- Purpose: deployment tier: `internal`, `external`, or `test`
 
 #### `declared.environment`
 
@@ -176,7 +176,7 @@ Optional operator-supplied metadata attached as OTLP resource attributes for loc
 
 ### `TELEMETRON_TIER`
 
-- Overrides `declared.tier` — one of `internal`, `production`, `development`, `staging`, `unknown`
+- Overrides `declared.tier` — one of `internal`, `external`, `test`
 
 ### `TELEMETRON_ENROLL_ENDPOINT`
 
@@ -249,7 +249,7 @@ insecure_endpoint: false
 
 declared:
   deployment_id: dev-laptop
-  tier: development
+  tier: external
   environment: local
   pack_version: telemetron-0.2.0
 
