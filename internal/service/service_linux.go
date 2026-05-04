@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	binaryPath = "/usr/local/bin/telemetron"
+	binaryPath = updater.LegacyBinaryPath
 	unitPath   = "/etc/systemd/system/telemetron.service"
 	configDir  = "/etc/telemetron"
 )
@@ -210,7 +210,7 @@ func (s *linuxService) InstallAs(cfg config.Config, token, runAsUser string) err
 	if err := s.fs.Chmod(cfg.TokenFile, 0o400); err != nil {
 		return err
 	}
-	if err := s.fs.WriteFile(unitPath, []byte(renderUnit(cfg.FilePath, username, groupname, resolveBinaryPath())), 0o644); err != nil {
+	if err := s.fs.WriteFile(unitPath, []byte(renderUnit(cfg.FilePath, username, groupname, updater.ResolveBinaryPath())), 0o644); err != nil {
 		return err
 	}
 	return s.chownRecursive(cfg.Paths.StateDir, uid, gid)
@@ -295,15 +295,6 @@ StandardError=journal
 [Install]
 WantedBy=multi-user.target
 `, runAsUser, runAsGroup, binPath, configPath)
-}
-
-// resolveBinaryPath returns the binary path for ExecStart.
-// Prefers the managed path if it exists (written by copySelf).
-func resolveBinaryPath() string {
-	if _, err := os.Stat(updater.ManagedBinaryPath); err == nil {
-		return updater.ManagedBinaryPath
-	}
-	return binaryPath
 }
 
 func (s *linuxService) copySelf() error {

@@ -37,24 +37,39 @@ func (m *mockFlushCounter) setCount(v uint64) {
 	m.mu.Unlock()
 }
 
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewJSONHandler(os.Stderr, nil))
+}
+
+func newTestUpdater(t *testing.T, opts ...func(*Updater)) *Updater {
+	t.Helper()
+	dir := t.TempDir()
+	logger := testLogger()
+	u := &Updater{
+		currentVersion: "v0.3.6",
+		binaryPath:     filepath.Join(dir, "telemetron"),
+		logger:         logger,
+		client:         http.DefaultClient,
+		flushCounter:   &mockFlushCounter{},
+		sf:             NewStateFile(filepath.Join(dir, "state.json"), logger),
+	}
+	for _, fn := range opts {
+		fn(u)
+	}
+	return u
+}
+
 func TestUpdaterCheckNoUpdate(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(Release{TagName: "v0.3.6"})
 	}))
 	defer srv.Close()
 
-	u := &Updater{
-		currentVersion: "v0.3.6",
-		binaryPath:     "/tmp/test-telemetron",
-		statePath:      filepath.Join(t.TempDir(), "state.json"),
-		baseURL:        srv.URL,
-		logger:         slog.New(slog.NewJSONHandler(os.Stderr, nil)),
-		client:         srv.Client(),
-		flushCounter:   &mockFlushCounter{},
-	}
+	u := newTestUpdater(t, func(u *Updater) {
+		u.baseURL = srv.URL
+		u.client = srv.Client()
+	})
 
-	// Patch the fetch to use our test server
-	// We need to test the check method directly
 	code := u.check(context.Background())
 	if code != 0 {
 		t.Errorf("expected 0, got %d", code)
@@ -62,19 +77,14 @@ func TestUpdaterCheckNoUpdate(t *testing.T) {
 }
 
 func TestUpdaterDownloadAndApply(t *testing.T) {
-	// Create a fake archive
 	dir := t.TempDir()
 	binDir := filepath.Join(dir, "bin")
 	os.MkdirAll(binDir, 0o755)
 	binaryPath := filepath.Join(binDir, "telemetron")
-
-	// Write a "current" binary
 	os.WriteFile(binaryPath, []byte("old-binary"), 0o755)
 
-	// Create the tarball with a new binary
 	archiveBuf := createTestArchive(t, "new-binary-content")
 
-	// Compute checksum
 	hash := sha256.Sum256(archiveBuf)
 	checksumLine := fmt.Sprintf("%x  telemetron_0.3.7_%s_%s.tar.gz\n",
 		hash, runtime.GOOS, runtime.GOARCH)
@@ -90,13 +100,14 @@ func TestUpdaterDownloadAndApply(t *testing.T) {
 	defer srv.Close()
 
 	statePath := filepath.Join(dir, "state.json")
+	logger := testLogger()
 	u := &Updater{
 		currentVersion: "v0.3.6",
 		binaryPath:     binaryPath,
-		statePath:      statePath,
-		logger:         slog.New(slog.NewJSONHandler(os.Stderr, nil)),
+		logger:         logger,
 		client:         srv.Client(),
 		flushCounter:   &mockFlushCounter{},
+		sf:             NewStateFile(statePath, logger),
 	}
 
 	assetName := fmt.Sprintf("telemetron_0.3.7_%s_%s.tar.gz", runtime.GOOS, runtime.GOARCH)
@@ -132,9 +143,7 @@ func TestUpdaterDownloadAndApply(t *testing.T) {
 	}
 
 	// Verify state has update_pending
-	stateData, _ := os.ReadFile(statePath)
-	var state State
-	json.Unmarshal(stateData, &state)
+	state := u.sf.Get()
 	if !state.UpdatePending {
 		t.Error("expected update_pending=true")
 	}
@@ -149,26 +158,27 @@ func TestUpdaterDownloadAndApply(t *testing.T) {
 func TestConfirmUpdate(t *testing.T) {
 	dir := t.TempDir()
 	statePath := filepath.Join(dir, "state.json")
-
 	fc := &mockFlushCounter{count: 10}
+	logger := testLogger()
+
+	sf := NewStateFile(statePath, logger)
+	// Pre-populate state
+	sf.Update(func(s *State) {
+		s.UpdatePending = true
+		s.UpdateStarted = true
+		s.PendingVersion = "v0.3.7"
+	})
 
 	u := &Updater{
 		currentVersion: "v0.3.7",
-		statePath:      statePath,
-		logger:         slog.New(slog.NewJSONHandler(os.Stderr, nil)),
+		logger:         logger,
 		flushCounter:   fc,
-		state: State{
-			UpdatePending:  true,
-			UpdateStarted:  true,
-			PendingVersion: "v0.3.7",
-		},
+		sf:             sf,
 	}
-	writeStateTo(statePath, u.state)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	// Simulate flushes
 	go func() {
 		time.Sleep(50 * time.Millisecond)
 		fc.setCount(14) // 10 + 4 > 10 + 3
@@ -176,11 +186,8 @@ func TestConfirmUpdate(t *testing.T) {
 
 	u.confirmUpdateWithInterval(ctx, 100*time.Millisecond)
 
-	// State should be confirmed
-	u.mu.Lock()
-	pending := u.state.UpdatePending
-	u.mu.Unlock()
-	if pending {
+	state := u.sf.Get()
+	if state.UpdatePending {
 		t.Error("expected update_pending=false after confirmation")
 	}
 }
@@ -194,17 +201,17 @@ func TestCheckRollback(t *testing.T) {
 	prevPath := binPath + ".prev"
 
 	// Write state with update_pending=true, update_started=true
-	state := State{
-		UpdatePending:  true,
-		UpdateStarted:  true,
-		PendingVersion: "v0.3.7",
-	}
-	writeStateTo(statePath, state)
+	logger := testLogger()
+	sf := NewStateFile(statePath, logger)
+	sf.Update(func(s *State) {
+		s.UpdatePending = true
+		s.UpdateStarted = true
+		s.PendingVersion = "v0.3.7"
+	})
 
 	os.WriteFile(binPath, []byte("bad-new"), 0o755)
 	os.WriteFile(prevPath, []byte("good-old"), 0o755)
 
-	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	rolledBack := checkRollback(logger, statePath, binPath)
 
 	if !rolledBack {

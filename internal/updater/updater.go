@@ -11,7 +11,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -21,7 +20,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/inceptionstack/telemetron/internal/fsatomic"
@@ -31,15 +29,6 @@ const (
 	// ExitCodeUpdate is the exit code used to signal systemd to restart
 	// after a binary update.
 	ExitCodeUpdate = 64
-
-	// ManagedBinDir is the directory for the managed binary.
-	ManagedBinDir = "/var/lib/telemetron/bin"
-
-	// ManagedBinaryPath is the full path to the managed binary.
-	ManagedBinaryPath = ManagedBinDir + "/telemetron"
-
-	// DefaultStatePath is the hardcoded path for update state.
-	DefaultStatePath = "/var/lib/telemetron/update-state.json"
 
 	defaultIntervalMinutes = 720 // 12 hours
 	initialJitterMax       = 30 * time.Minute
@@ -57,7 +46,6 @@ type Config struct {
 
 // IsEnabled returns whether auto-update is enabled (default: true).
 func (c Config) IsEnabled() bool {
-	// Env override takes precedence
 	if env := os.Getenv("TELEMETRON_AUTO_UPDATE"); env != "" {
 		low := strings.ToLower(env)
 		return low != "false" && low != "0" && low != "no"
@@ -65,7 +53,7 @@ func (c Config) IsEnabled() bool {
 	if c.Enabled != nil {
 		return *c.Enabled
 	}
-	return true // default
+	return true
 }
 
 // Interval returns the check interval.
@@ -81,18 +69,6 @@ func (c Config) Interval() time.Duration {
 	return time.Duration(defaultIntervalMinutes) * time.Minute
 }
 
-// State persists update check state across restarts.
-type State struct {
-	LastCheck         time.Time `json:"last_check"`
-	LastUpdate        time.Time `json:"last_update,omitempty"`
-	CurrentVersion    string    `json:"current_version,omitempty"`
-	PreviousVersion   string    `json:"previous_version,omitempty"`
-	UpdatePending     bool      `json:"update_pending"`
-	UpdateStarted     bool      `json:"update_started"`
-	PendingVersion    string    `json:"pending_version,omitempty"`
-	RolledBackVersion string    `json:"rolled_back_version,omitempty"`
-}
-
 // FlushCounter provides an interface to observe flush counts.
 type FlushCounter interface {
 	FlushCount() uint64
@@ -102,14 +78,11 @@ type FlushCounter interface {
 type Updater struct {
 	currentVersion string
 	binaryPath     string
-	statePath      string
 	baseURL        string // GitHub API base URL, empty for default
 	logger         *slog.Logger
 	client         *http.Client
 	flushCounter   FlushCounter
-
-	mu    sync.Mutex
-	state State
+	sf             *StateFile
 }
 
 // New creates a new Updater.
@@ -117,10 +90,10 @@ func New(currentVersion, binaryPath string, logger *slog.Logger, fc FlushCounter
 	return &Updater{
 		currentVersion: currentVersion,
 		binaryPath:     binaryPath,
-		statePath:      DefaultStatePath,
 		logger:         logger,
 		client:         &http.Client{Timeout: 60 * time.Second},
 		flushCounter:   fc,
+		sf:             NewStateFile(DefaultStatePath, logger),
 	}
 }
 
@@ -137,112 +110,76 @@ func IsManagedInstall() bool {
 	return resolved == ManagedBinaryPath
 }
 
-// CheckRollback runs early in startup, before full config init.
-// It reads the state file and rolls back if an update crashed.
+// ---------- Rollback (runs early in startup, before full config) ----------
+
+// CheckRollback reads the state file and rolls back if an update crashed.
 // Returns true if a rollback was performed (caller should exit).
 func CheckRollback(logger *slog.Logger) bool {
 	return checkRollback(logger, DefaultStatePath, ManagedBinaryPath)
 }
 
 func checkRollback(logger *slog.Logger, statePath, binaryPath string) bool {
-	data, err := os.ReadFile(statePath)
-	if err != nil {
-		return false // no state file, nothing to do
-	}
-	var state struct {
-		UpdatePending bool   `json:"update_pending"`
-		UpdateStarted bool   `json:"update_started"`
-		RolledBackVer string `json:"rolled_back_version"`
-		PendingVer    string `json:"pending_version"`
-	}
-	if err := json.Unmarshal(data, &state); err != nil {
-		return false // unparseable, don't make things worse
-	}
+	sf := NewStateFile(statePath, logger)
+	sf.Load()
+	state := sf.Get()
+
 	if !state.UpdatePending {
 		return false
 	}
 	if !state.UpdateStarted {
 		// First boot after update — mark started
-		var full State
-		_ = json.Unmarshal(data, &full)
-		full.UpdateStarted = true
-		if err := writeStateTo(statePath, full); err != nil {
+		if err := sf.Update(func(s *State) { s.UpdateStarted = true }); err != nil {
 			// Can't persist started flag — clear pending to avoid infinite
-			// first-boot loop. If clearPending also fails (disk truly broken),
+			// first-boot loop. If ClearPending also fails (disk truly broken),
 			// the process continues without rollback protection.
 			logger.Warn("failed to mark update_started, clearing pending",
 				slog.String("event", "update_started_write_failed"),
 				slog.String("error", err.Error()))
-			clearPending(logger, statePath, "")
+			sf.ClearPending("")
 			return false
 		}
 		logger.Info("update first boot, marking started",
 			slog.String("event", "update_first_boot"),
-			slog.String("version", state.PendingVer))
+			slog.String("version", state.PendingVersion))
 		return false
 	}
 
 	// Crash restart after update — rollback
 	logger.Warn("update crash detected, rolling back",
 		slog.String("event", "update_rollback"),
-		slog.String("failed_version", state.PendingVer))
+		slog.String("failed_version", state.PendingVersion))
 
 	prevPath := binaryPath + ".prev"
-	if _, err := os.Stat(prevPath); err != nil {
+	if !fileExists(prevPath) {
 		logger.Warn("no .prev binary for rollback, skipping",
 			slog.String("event", "update_rollback_skip"))
-		clearPending(logger, statePath, state.PendingVer)
+		sf.ClearPending(state.PendingVersion)
 		return false
 	}
 
-	// Atomic rollback: rename .prev → binary
 	if err := os.Rename(prevPath, binaryPath); err != nil {
 		logger.Error("rollback rename failed",
 			slog.String("event", "update_rollback_failed"),
 			slog.String("error", err.Error()))
-		clearPending(logger, statePath, state.PendingVer)
+		sf.ClearPending(state.PendingVersion)
 		return false
 	}
 
-	clearPending(logger, statePath, state.PendingVer)
+	sf.ClearPending(state.PendingVersion)
 	logger.Info("rollback complete, exiting for restart with restored binary",
 		slog.String("event", "update_rollback_done"),
-		slog.String("rolled_back_version", state.PendingVer))
+		slog.String("rolled_back_version", state.PendingVersion))
 	return true
 }
 
-func clearPending(logger *slog.Logger, statePath, rolledBackVersion string) {
-	data, _ := os.ReadFile(statePath)
-	var state State
-	_ = json.Unmarshal(data, &state)
-	state.UpdatePending = false
-	state.UpdateStarted = false
-	state.PendingVersion = ""
-	state.RolledBackVersion = rolledBackVersion
-	if err := writeStateTo(statePath, state); err != nil {
-		logger.Warn("clearPending: failed to write state",
-			slog.String("error", err.Error()))
-	}
-}
-
-
-func writeStateTo(path string, state State) error {
-	data, err := json.MarshalIndent(state, "", "  ")
-	if err != nil {
-		return err
-	}
-	return fsatomic.WriteFile(path, data)
-}
+// ---------- Main update loop ----------
 
 // Run starts the update check loop. Blocks until ctx is cancelled.
 // Returns ExitCodeUpdate if an update was applied.
 func (u *Updater) Run(ctx context.Context, cfg Config) int {
 	interval := cfg.Interval()
+	u.sf.Load()
 
-	// Load state
-	u.loadState()
-
-	// Calculate initial delay
 	delay := u.initialDelay(interval)
 	u.logger.Info("auto-update enabled",
 		slog.String("event", "updater_start"),
@@ -250,11 +187,9 @@ func (u *Updater) Run(ctx context.Context, cfg Config) int {
 		slog.String("interval", interval.String()),
 		slog.String("first_check_in", delay.Round(time.Second).String()))
 
-	// If update_pending, start confirmation goroutine
-	u.mu.Lock()
-	pending := u.state.UpdatePending && u.state.UpdateStarted
-	u.mu.Unlock()
-	if pending {
+	// If update_pending + started, begin confirmation in background
+	state := u.sf.Get()
+	if state.UpdatePending && state.UpdateStarted {
 		go u.confirmUpdate(ctx)
 	}
 
@@ -270,44 +205,26 @@ func (u *Updater) Run(ctx context.Context, cfg Config) int {
 			if code == ExitCodeUpdate {
 				return code
 			}
-			u.mu.Lock()
-			u.state.LastCheck = time.Now().UTC()
-			if err := writeStateTo(u.statePath, u.state); err != nil {
-				u.logger.Warn("failed to persist last_check",
-					slog.String("error", err.Error()))
-			}
-			u.mu.Unlock()
+			u.sf.UpdateBestEffort(func(s *State) {
+				s.LastCheck = time.Now().UTC()
+			})
 			timer.Reset(interval)
 		}
 	}
 }
 
-func (u *Updater) loadState() {
-	data, err := os.ReadFile(u.statePath)
-	if err != nil {
-		return
-	}
-	u.mu.Lock()
-	defer u.mu.Unlock()
-	_ = json.Unmarshal(data, &u.state)
-}
-
 func (u *Updater) initialDelay(interval time.Duration) time.Duration {
-	u.mu.Lock()
-	lastCheck := u.state.LastCheck
-	u.mu.Unlock()
+	lastCheck := u.sf.Get().LastCheck
 	if !lastCheck.IsZero() {
 		elapsed := time.Since(lastCheck)
 		remaining := interval - elapsed
 		if remaining > 0 {
-			// Add jitter if remaining is short
 			if remaining < shortJitterMax {
 				remaining += time.Duration(rand.Int63n(int64(shortJitterMax)))
 			}
 			return remaining
 		}
 	}
-	// No state or stale — random initial jitter
 	return time.Duration(rand.Int63n(int64(initialJitterMax)))
 }
 
@@ -335,17 +252,15 @@ func (u *Updater) check(ctx context.Context) int {
 		return 0
 	}
 
-	// Check if this version was previously rolled back
-	u.mu.Lock()
-	if u.state.RolledBackVersion == strings.TrimPrefix(rel.TagName, "v") ||
-		u.state.RolledBackVersion == rel.TagName {
-		u.mu.Unlock()
+	// Skip versions that previously caused a rollback
+	state := u.sf.Get()
+	if state.RolledBackVersion == strings.TrimPrefix(rel.TagName, "v") ||
+		state.RolledBackVersion == rel.TagName {
 		u.logger.Warn("skipping previously rolled-back version",
 			slog.String("event", "update_skip_rollback"),
 			slog.String("version", rel.TagName))
 		return 0
 	}
-	u.mu.Unlock()
 
 	if err := u.downloadAndApply(ctx, rel); err != nil {
 		u.logger.Error("update failed",
@@ -363,101 +278,38 @@ func (u *Updater) check(ctx context.Context) int {
 	return ExitCodeUpdate
 }
 
+// ---------- Download, verify, apply ----------
+
 func (u *Updater) downloadAndApply(ctx context.Context, rel *Release) error {
-	assetName := AssetName(rel.TagName)
-	archive, checksums := FindAsset(rel, assetName)
-	if archive == nil {
-		return fmt.Errorf("asset %s not found in release %s", assetName, rel.TagName)
-	}
-	if checksums == nil {
-		return fmt.Errorf("checksums.txt not found in release %s", rel.TagName)
-	}
-
-	stagingDir := filepath.Join(filepath.Dir(u.binaryPath), "..", "staging")
-	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
-		return fmt.Errorf("create staging dir: %w", err)
-	}
-
-	// Download archive
-	archivePath := filepath.Join(stagingDir, assetName)
-	if err := u.download(ctx, archive.BrowserDownloadURL, archivePath); err != nil {
-		return fmt.Errorf("download archive: %w", err)
-	}
-	defer os.Remove(archivePath)
-
-	// Download checksums
-	checksumsPath := filepath.Join(stagingDir, "checksums.txt")
-	if err := u.download(ctx, checksums.BrowserDownloadURL, checksumsPath); err != nil {
-		return fmt.Errorf("download checksums: %w", err)
-	}
-	defer os.Remove(checksumsPath)
-
-	// Verify checksum
-	if err := verifyChecksum(archivePath, checksumsPath, assetName); err != nil {
-		return fmt.Errorf("checksum verification: %w", err)
-	}
-
-	u.logger.Info("update downloaded and verified",
-		slog.String("event", "update_download"),
-		slog.String("version", rel.TagName),
-		slog.Bool("checksum_ok", true))
-
-	// Extract binary
-	binaryStaging := filepath.Join(stagingDir, "telemetron")
-	if err := extractBinary(archivePath, binaryStaging); err != nil {
-		return fmt.Errorf("extract: %w", err)
-	}
-
-	if err := os.Chmod(binaryStaging, 0o755); err != nil {
-		return fmt.Errorf("chmod staged binary: %w", err)
-	}
-
-	// Backup current binary
-	prevPath := u.binaryPath + ".prev"
-	prevBakPath := u.binaryPath + ".prev.bak"
-
-	// Rename existing .prev to .prev.bak
-	if _, err := os.Stat(prevPath); err == nil {
-		_ = os.Rename(prevPath, prevBakPath)
-	}
-
-	// Atomic copy current → .prev (write to temp, rename)
-	currentData, err := os.ReadFile(u.binaryPath)
+	stagedBinary, cleanup, err := u.stage(ctx, rel)
 	if err != nil {
-		return fmt.Errorf("read current binary: %w", err)
+		return err
 	}
-	if err := fsatomic.WriteFile(prevPath, currentData, fsatomic.WithMode(0o755)); err != nil {
-		return fmt.Errorf("backup current binary: %w", err)
+	defer cleanup()
+
+	if err := u.backupCurrent(); err != nil {
+		return err
 	}
 
-	// Write update_pending BEFORE the rename
-	u.mu.Lock()
-	prevState := u.state // snapshot for rollback on write failure
-	u.state.UpdatePending = true
-	u.state.UpdateStarted = false
-	u.state.PendingVersion = rel.TagName
-	u.state.LastUpdate = time.Now().UTC()
-	u.state.PreviousVersion = u.currentVersion
-	u.state.CurrentVersion = strings.TrimPrefix(rel.TagName, "v")
-	if err := writeStateTo(u.statePath, u.state); err != nil {
-		u.state = prevState // revert in-memory state
-		u.mu.Unlock()
+	// Persist update_pending BEFORE the binary swap
+	if err := u.sf.Update(func(s *State) {
+		s.UpdatePending = true
+		s.UpdateStarted = false
+		s.PendingVersion = rel.TagName
+		s.LastUpdate = time.Now().UTC()
+		s.PreviousVersion = u.currentVersion
+		s.CurrentVersion = strings.TrimPrefix(rel.TagName, "v")
+	}); err != nil {
 		return fmt.Errorf("persist update_pending state: %w", err)
 	}
-	u.mu.Unlock()
 
 	// Atomic rename staged → binary
-	if err := os.Rename(binaryStaging, u.binaryPath); err != nil {
-		// Rename failed — clear pending state since update wasn't applied
-		u.mu.Lock()
-		u.state.UpdatePending = false
-		u.state.UpdateStarted = false
-		u.state.PendingVersion = ""
-		if wErr := writeStateTo(u.statePath, u.state); wErr != nil {
-			u.logger.Warn("failed to clear pending state after rename failure",
-				slog.String("error", wErr.Error()))
-		}
-		u.mu.Unlock()
+	if err := os.Rename(stagedBinary, u.binaryPath); err != nil {
+		u.sf.UpdateBestEffort(func(s *State) {
+			s.UpdatePending = false
+			s.UpdateStarted = false
+			s.PendingVersion = ""
+		})
 		return fmt.Errorf("rename staged binary: %w", err)
 	}
 
@@ -465,10 +317,90 @@ func (u *Updater) downloadAndApply(ctx context.Context, rel *Release) error {
 		slog.String("event", "update_applied"),
 		slog.String("from", u.currentVersion),
 		slog.String("to", rel.TagName),
-		slog.String("prev", prevPath))
+		slog.String("prev", u.binaryPath+".prev"))
 
 	return nil
 }
+
+// stage downloads, verifies, and extracts the release binary into a staging
+// directory. Returns the path to the staged binary and a cleanup function.
+func (u *Updater) stage(ctx context.Context, rel *Release) (binaryPath string, cleanup func(), err error) {
+	assetName := AssetName(rel.TagName)
+	archive, checksums := FindAsset(rel, assetName)
+	if archive == nil {
+		return "", nil, fmt.Errorf("asset %s not found in release %s", assetName, rel.TagName)
+	}
+	if checksums == nil {
+		return "", nil, fmt.Errorf("checksums.txt not found in release %s", rel.TagName)
+	}
+
+	stagingDir := filepath.Join(filepath.Dir(u.binaryPath), "..", "staging")
+	if err := os.MkdirAll(stagingDir, 0o755); err != nil {
+		return "", nil, fmt.Errorf("create staging dir: %w", err)
+	}
+
+	archivePath := filepath.Join(stagingDir, assetName)
+	checksumsPath := filepath.Join(stagingDir, "checksums.txt")
+	stagedBinary := filepath.Join(stagingDir, "telemetron")
+
+	cleanupFn := func() {
+		os.Remove(archivePath)
+		os.Remove(checksumsPath)
+		os.Remove(stagedBinary) // may already be gone after rename
+	}
+
+	if err := u.download(ctx, archive.BrowserDownloadURL, archivePath); err != nil {
+		cleanupFn()
+		return "", nil, fmt.Errorf("download archive: %w", err)
+	}
+	if err := u.download(ctx, checksums.BrowserDownloadURL, checksumsPath); err != nil {
+		cleanupFn()
+		return "", nil, fmt.Errorf("download checksums: %w", err)
+	}
+	if err := verifyChecksum(archivePath, checksumsPath, assetName); err != nil {
+		cleanupFn()
+		return "", nil, fmt.Errorf("checksum verification: %w", err)
+	}
+
+	u.logger.Info("update downloaded and verified",
+		slog.String("event", "update_download"),
+		slog.String("version", rel.TagName),
+		slog.Bool("checksum_ok", true))
+
+	if err := extractBinary(archivePath, stagedBinary); err != nil {
+		cleanupFn()
+		return "", nil, fmt.Errorf("extract: %w", err)
+	}
+	if err := os.Chmod(stagedBinary, 0o755); err != nil {
+		cleanupFn()
+		return "", nil, fmt.Errorf("chmod staged binary: %w", err)
+	}
+
+	return stagedBinary, cleanupFn, nil
+}
+
+// backupCurrent saves the current binary to .prev (rotating .prev → .prev.bak).
+func (u *Updater) backupCurrent() error {
+	prevPath := u.binaryPath + ".prev"
+
+	// Rotate existing .prev to .prev.bak
+	if fileExists(prevPath) {
+		_ = os.Rename(prevPath, u.binaryPath+".prev.bak")
+	}
+
+	currentData, err := os.ReadFile(u.binaryPath)
+	if err != nil {
+		return fmt.Errorf("read current binary: %w", err)
+	}
+
+	if err := fsatomic.WriteFile(prevPath, currentData, fsatomic.WithMode(0o755)); err != nil {
+		return fmt.Errorf("backup current binary: %w", err)
+	}
+
+	return nil
+}
+
+// ---------- HTTP download ----------
 
 func (u *Updater) download(ctx context.Context, url, dest string) error {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -486,7 +418,6 @@ func (u *Updater) download(ctx context.Context, url, dest string) error {
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("HTTP %d for %s", resp.StatusCode, url)
 	}
-
 	if resp.ContentLength > maxDownloadBytes {
 		return fmt.Errorf("response too large: %d bytes (limit %d)", resp.ContentLength, maxDownloadBytes)
 	}
@@ -502,7 +433,6 @@ func (u *Updater) download(ctx context.Context, url, dest string) error {
 		os.Remove(dest)
 		return err
 	}
-	// Check if response was truncated by LimitReader
 	if n == maxDownloadBytes {
 		f.Close()
 		os.Remove(dest)
@@ -515,8 +445,9 @@ func (u *Updater) download(ctx context.Context, url, dest string) error {
 	return nil
 }
 
+// ---------- Archive verification & extraction ----------
+
 func verifyChecksum(archivePath, checksumsPath, assetName string) error {
-	// Compute actual hash
 	f, err := os.Open(archivePath)
 	if err != nil {
 		return err
@@ -529,13 +460,11 @@ func verifyChecksum(archivePath, checksumsPath, assetName string) error {
 	}
 	actual := hex.EncodeToString(h.Sum(nil))
 
-	// Read expected from checksums.txt
 	data, err := os.ReadFile(checksumsPath)
 	if err != nil {
 		return err
 	}
 	for _, line := range strings.Split(string(data), "\n") {
-		// Format: <hash>  <filename>
 		parts := strings.Fields(line)
 		if len(parts) == 2 && parts[1] == assetName {
 			if parts[0] == actual {
@@ -591,6 +520,8 @@ func extractBinary(archivePath, dest string) error {
 	return fmt.Errorf("telemetron binary not found in archive")
 }
 
+// ---------- Update confirmation ----------
+
 func (u *Updater) confirmUpdate(ctx context.Context) {
 	u.confirmUpdateWithInterval(ctx, 15*time.Second)
 }
@@ -607,22 +538,16 @@ func (u *Updater) confirmUpdateWithInterval(ctx context.Context, tickInterval ti
 		case <-ticker.C:
 			current := u.flushCounter.FlushCount()
 			if current-startCount >= confirmFlushes {
-				u.mu.Lock()
-				prevState := u.state
-				u.state.UpdatePending = false
-				u.state.UpdateStarted = false
-				u.state.PendingVersion = ""
-				// Clear rolled_back_version on successful new update
-				u.state.RolledBackVersion = ""
-				if err := writeStateTo(u.statePath, u.state); err != nil {
-					// Revert in-memory state so the loop retries on next tick
-					u.state = prevState
-					u.mu.Unlock()
+				if err := u.sf.Update(func(s *State) {
+					s.UpdatePending = false
+					s.UpdateStarted = false
+					s.PendingVersion = ""
+					s.RolledBackVersion = ""
+				}); err != nil {
 					u.logger.Warn("failed to persist update confirmation, will retry",
 						slog.String("error", err.Error()))
 					continue
 				}
-				u.mu.Unlock()
 				u.logger.Info("update confirmed after successful flushes",
 					slog.String("event", "update_confirmed"),
 					slog.String("version", u.currentVersion),
