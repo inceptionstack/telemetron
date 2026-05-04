@@ -177,3 +177,4 @@ All update activity logged as structured JSON via slog:
 7. `cmd/telemetron/update.go` — manual `telemetron update` command
 8. Update `install.go` — binary relocation, symlink, unit changes
 9. Docs update (README, configuration.md)
+
