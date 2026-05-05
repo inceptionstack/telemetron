@@ -17,6 +17,7 @@ import (
 	"github.com/inceptionstack/telemetron/internal/otlp"
 	"github.com/inceptionstack/telemetron/internal/status"
 	"github.com/inceptionstack/telemetron/internal/telemetry"
+	"github.com/inceptionstack/telemetron/internal/tier"
 	"github.com/inceptionstack/telemetron/internal/updater"
 	"github.com/spf13/cobra"
 )
@@ -58,6 +59,9 @@ func newStartCmd() *cobra.Command {
 				return err
 			}
 			logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+
+			// Detect tier from AWS APIs on startup (best-effort, upgrades only)
+			tier.DetectAndWrite(logger)
 
 			store := status.New(cfg.Paths.StatusFile)
 			collector, err := collectorapi.New(cfg.Collectors[cfg.Mode], store, cfg)
