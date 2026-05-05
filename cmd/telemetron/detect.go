@@ -222,11 +222,15 @@ func instanceAlreadyConfigured(instance string) bool {
 // Prevents skipping setup when config exists but is for a different pack.
 func instanceModeMatches(instance, mode string) bool {
 	path := configPathForInstance(instance)
+	return modeMatchesFile(path, mode)
+}
+
+// modeMatchesFile reads a config file and checks if its mode field matches.
+func modeMatchesFile(path, mode string) bool {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return false
 	}
-	// Simple check: look for "mode: <mode>" line
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "mode:") {
