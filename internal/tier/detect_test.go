@@ -21,8 +21,12 @@ func TestDetectAndWrite(t *testing.T) {
 	// Set up temp tier file
 	dir := t.TempDir()
 	lokiDir := filepath.Join(dir, ".loki")
-	os.MkdirAll(lokiDir, 0o755)
-	os.WriteFile(filepath.Join(lokiDir, "tier"), []byte("external\n"), 0o644)
+	if err := os.MkdirAll(lokiDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lokiDir, "tier"), []byte("external\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	// Override HOME so candidateHomes finds our temp dir
 	t.Setenv("HOME", dir)
@@ -46,8 +50,12 @@ func TestDetectAndWrite(t *testing.T) {
 func TestReadCurrentTier(t *testing.T) {
 	dir := t.TempDir()
 	lokiDir := filepath.Join(dir, ".loki")
-	os.MkdirAll(lokiDir, 0o755)
-	os.WriteFile(filepath.Join(lokiDir, "tier"), []byte("internal\n"), 0o644)
+	if err := os.MkdirAll(lokiDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lokiDir, "tier"), []byte("internal\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	t.Setenv("HOME", dir)
 
@@ -61,15 +69,22 @@ func TestNoDowngrade(t *testing.T) {
 	// If current tier is already "internal", DetectAndWrite should not downgrade
 	dir := t.TempDir()
 	lokiDir := filepath.Join(dir, ".loki")
-	os.MkdirAll(lokiDir, 0o755)
-	os.WriteFile(filepath.Join(lokiDir, "tier"), []byte("internal\n"), 0o644)
+	if err := os.MkdirAll(lokiDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lokiDir, "tier"), []byte("internal\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	t.Setenv("HOME", dir)
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	DetectAndWrite(logger)
 
-	data, _ := os.ReadFile(filepath.Join(lokiDir, "tier"))
+	data, err := os.ReadFile(filepath.Join(lokiDir, "tier"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if string(data) != "internal\n" {
 		t.Errorf("tier was downgraded: %q", string(data))
 	}
