@@ -36,6 +36,17 @@ var (
 	setupTokenPath          = "/etc/telemetron/token"
 )
 
+// installIDPathForInstance returns the install-id file path for an instance.
+// Uses config.InstancePaths for platform-aware resolution.
+// setupInstallIDPath override is respected for primary (testing hook).
+func installIDPathForInstance(instance string) string {
+	if instance == "" && setupInstallIDPath != "/etc/telemetron/install-id" {
+		return setupInstallIDPath
+	}
+	paths := config.InstancePaths(runtime.GOOS, instance)
+	return paths.InstallIDFile
+}
+
 func explicitTokenSourceConfigured(r resolvedSetup) bool {
 	return r.tokenFile != "" || r.tokenFromEnv != "" || tokenSecretIDSet()
 }
@@ -58,7 +69,7 @@ func autoEnrollDisabled() bool {
 }
 
 func shouldAttemptAutoEnroll(r resolvedSetup) bool {
-	return !explicitTokenSourceConfigured(r) && !existingTokenFilePresent()
+	return !explicitTokenSourceConfigured(r) && !existingTokenFilePresent(r.instance)
 }
 
 // ErrTokenSecretNotResolved is returned when TELEMETRON_TOKEN_SECRET is
@@ -82,13 +93,17 @@ func loadTokenOrEnroll(ctx context.Context, r resolvedSetup, cfg config.Config) 
 	if r.tokenFromEnv != "" {
 		return strings.TrimSpace(r.tokenFromEnv), "env", nil
 	}
-	if existingTokenFilePresent() {
-		// Read from the same path existingTokenFilePresent() just
-		// confirmed. Reading from cfg.TokenFile instead is a bug when
-		// the operator has moved the token out of the default location
-		// (and trips every e2e test that scopes setupTokenPath to a
-		// tempdir).
-		data, err := os.ReadFile(setupTokenPath)
+	if existingTokenFilePresent(r.instance) {
+		// Read from the instance-aware token path.
+		// setupTokenPath hook: when overridden for testing, use it for primary.
+		var tokenPath string
+		if r.instance == "" && setupTokenPath != "/etc/telemetron/token" {
+			tokenPath = setupTokenPath
+		} else {
+			paths := config.InstancePaths(runtime.GOOS, r.instance)
+			tokenPath = paths.TokenFile
+		}
+		data, err := os.ReadFile(tokenPath)
 		if err != nil {
 			return "", "", err
 		}
@@ -103,7 +118,8 @@ func loadTokenOrEnroll(ctx context.Context, r resolvedSetup, cfg config.Config) 
 		return "", "", errors.New("auto-enroll disabled")
 	}
 
-	installID, err := readOrGenerateInstallID(setupInstallIDPath)
+	installIDPath := installIDPathForInstance(r.instance)
+	installID, err := readOrGenerateInstallID(installIDPath)
 	if err != nil {
 		return "", "", fmt.Errorf("prepare install-id: %w", err)
 	}

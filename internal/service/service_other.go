@@ -12,6 +12,10 @@ func newService() Service {
 	return unsupportedService{}
 }
 
+func newServiceWithInstance(_ string) Service {
+	return unsupportedService{}
+}
+
 func SetupPrecondition() error {
 	return ErrUnsupported
 }

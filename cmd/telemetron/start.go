@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -33,9 +35,10 @@ func newStartCmd() *cobra.Command {
 			// Check for rollback FIRST — before config, token, or anything else.
 			// If the previous binary update crashed, restore .prev and exit
 			// so systemd restarts with the restored binary.
+			// Only primary instance owns update state.
 			if updater.IsManagedInstall() {
 				earlyLogger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-				if updater.CheckRollback(earlyLogger) {
+				if !isSecondaryInstance() && updater.CheckRollback(earlyLogger) {
 					os.Exit(updater.ExitCodeUpdate)
 				}
 			}
@@ -77,9 +80,11 @@ func newStartCmd() *cobra.Command {
 			// Watch tier file for changes and update declared attrs dynamically
 			go watchTierFile(ctx, cfg.Declared.Tier, exporter, logger)
 
-			// Start auto-updater in background if this is a managed install
+			// Start auto-updater in background if this is a managed install.
+			// Only primary instance owns auto-update; secondaries rely on
+			// PartOf=telemetron.service for cascade restart.
 			updateCh := make(chan int, 1)
-			if updater.IsManagedInstall() {
+			if updater.IsManagedInstall() && !isSecondaryInstance() {
 				up := updater.New(version, updater.ManagedBinaryPath, logger, store)
 				if cfg.AutoUpdate.IsEnabled() {
 					go func() {
@@ -128,10 +133,10 @@ func declaredForExporter(cfg config.Config, logger *slog.Logger) map[string]stri
 		"pack_version":       packVersion,
 		"telemetron_version": version,
 	}
-	installID, err := readInstallID(setupInstallIDPath)
+	installID, err := readInstallID(cfg.Paths.InstallIDFile)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
-			logger.Warn("install_id unavailable; continuing without resource attribute", "path", setupInstallIDPath, "error", err)
+			logger.Warn("install_id unavailable; continuing without resource attribute", "path", cfg.Paths.InstallIDFile, "error", err)
 		}
 		return declared
 	}
@@ -160,4 +165,32 @@ func watchTierFile(ctx context.Context, initialTier string, exporter *otlp.Expor
 			}
 		}
 	}
+}
+
+// isSecondaryInstance returns true if the current process is running as a
+// secondary (instanced) telemetron. Determined by the --config path: if it
+// lives in the expected config directory AND matches the instance naming
+// pattern (config-<name>.yaml), it's secondary.
+func isSecondaryInstance() bool {
+	if configPath == "" {
+		return false
+	}
+	// Only consider files in the expected telemetron config directories
+	dir := filepath.Dir(configPath)
+	knownDirs := []string{"/etc/telemetron"}
+	if home, err := os.UserHomeDir(); err == nil {
+		knownDirs = append(knownDirs, filepath.Join(home, ".config", "telemetron"))
+	}
+	var inKnownDir bool
+	for _, d := range knownDirs {
+		if dir == d {
+			inKnownDir = true
+			break
+		}
+	}
+	if !inKnownDir {
+		return false
+	}
+	base := filepath.Base(configPath)
+	return strings.HasPrefix(base, "config-") && strings.HasSuffix(base, ".yaml")
 }

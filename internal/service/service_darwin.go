@@ -12,6 +12,10 @@ func newService() Service {
 	return darwinService{}
 }
 
+func newServiceWithInstance(_ string) Service {
+	return darwinService{}
+}
+
 func SetupPrecondition() error {
 	return ErrUnsupported
 }

@@ -118,20 +118,13 @@ func runDetect(cmd *cobra.Command, f *detectFlags) error {
 
 		instance := instanceForModeInContext(d.Mode, len(detections))
 
-		// Phase 2: instance-aware setup (--instance flag on setup command).
-		// For now, only the primary instance (openclaw) can be fully configured.
-		if instance != "" {
-			fmt.Fprintf(cmd.OutOrStdout(), "  %s instance %q requires --instance support (Phase 2); skipping\n", arrow, instance)
-			continue
-		}
-
 		if !f.force && instanceAlreadyConfigured(instance) && instanceModeMatches(instance, d.Mode) {
 			fmt.Fprintf(cmd.OutOrStdout(), "  %s already configured, skipping (use --force to reconfigure)\n", arrow)
 			configured++
 			continue
 		}
 
-		err := runDetectSetup(cmd, d, endpoint, enrollEndpoint)
+		err := runDetectSetup(cmd, d, endpoint, enrollEndpoint, instance)
 		if err != nil {
 			fmt.Fprintf(cmd.ErrOrStderr(), "  %s %s setup failed: %v\n", crossMark, d.Mode, err)
 			continue
@@ -261,7 +254,7 @@ func instanceForModeInContext(mode string, totalDetections int) string {
 	return mode
 }
 
-func runDetectSetup(cmd *cobra.Command, d agentdetect.Detection, endpoint, enrollEndpoint string) error {
+func runDetectSetup(cmd *cobra.Command, d agentdetect.Detection, endpoint, enrollEndpoint, instance string) error {
 	args := []string{
 		"--endpoint", endpoint,
 		"--mode", d.Mode,
@@ -271,6 +264,9 @@ func runDetectSetup(cmd *cobra.Command, d agentdetect.Detection, endpoint, enrol
 	}
 	if d.RunAsUser != "" {
 		args = append(args, "--run-as", d.RunAsUser)
+	}
+	if instance != "" {
+		args = append(args, "--instance", instance)
 	}
 
 	// Propagate enroll endpoint: set env before sub-command so setup reads it.

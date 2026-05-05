@@ -21,9 +21,17 @@ import (
 
 const (
 	binaryPath = updater.LegacyBinaryPath
-	unitPath   = "/etc/systemd/system/telemetron.service"
 	configDir  = "/etc/telemetron"
 )
+
+// unitPathForInstance returns the systemd unit path for the given instance.
+// Empty instance = primary ("telemetron.service").
+func unitPathForInstance(instance string) string {
+	if instance == "" {
+		return "/etc/systemd/system/telemetron.service"
+	}
+	return fmt.Sprintf("/etc/systemd/system/telemetron-%s.service", instance)
+}
 
 var (
 	systemdStat      = os.Stat
@@ -74,9 +82,14 @@ type linuxService struct {
 	lookupGroup func(gid string) (*user.Group, error)
 	executable  func() (string, error)
 	uid         func() int
+	instance    string // empty = primary
 }
 
 func newService() Service {
+	return newServiceWithInstance("")
+}
+
+func newServiceWithInstance(instance string) Service {
 	return &linuxService{
 		fs: osFS{},
 		run: func(name string, args ...string) error {
@@ -92,6 +105,7 @@ func newService() Service {
 		lookupGroup: user.LookupGroupId,
 		executable:  os.Executable,
 		uid:         os.Geteuid,
+		instance:    instance,
 	}
 }
 
@@ -210,7 +224,9 @@ func (s *linuxService) InstallAs(cfg config.Config, token, runAsUser string) err
 	if err := s.fs.Chmod(cfg.TokenFile, 0o400); err != nil {
 		return err
 	}
-	if err := s.fs.WriteFile(unitPath, []byte(renderUnit(cfg.FilePath, username, groupname, updater.ResolveBinaryPath())), 0o644); err != nil {
+	unitPath := unitPathForInstance(cfg.Paths.Instance)
+	unitContent := renderUnit(cfg.FilePath, username, groupname, updater.ResolveBinaryPath(), cfg.Paths.Instance)
+	if err := s.fs.WriteFile(unitPath, []byte(unitContent), 0o644); err != nil {
 		return err
 	}
 	return s.chownRecursive(cfg.Paths.StateDir, uid, gid)
@@ -232,14 +248,24 @@ func (s *linuxService) EnableAndStart() error {
 	if err := s.run("systemctl", "daemon-reload"); err != nil {
 		return err
 	}
-	return s.run("systemctl", "enable", "--now", "telemetron.service")
+	unitName := s.unitName()
+	return s.run("systemctl", "enable", "--now", unitName)
+}
+
+func (s *linuxService) unitName() string {
+	if s.instance == "" {
+		return "telemetron.service"
+	}
+	return fmt.Sprintf("telemetron-%s.service", s.instance)
 }
 
 func (s *linuxService) Uninstall() error {
 	if s.uid() != 0 {
 		return fmt.Errorf("this command must run as root")
 	}
-	_ = s.run("systemctl", "disable", "--now", "telemetron.service")
+	unitName := s.unitName()
+	_ = s.run("systemctl", "disable", "--now", unitName)
+	unitPath := unitPathForInstance(s.instance)
 	if err := s.fs.Remove(unitPath); err != nil && !errorsIsNotExist(err) {
 		return err
 	}
@@ -247,7 +273,8 @@ func (s *linuxService) Uninstall() error {
 }
 
 func (s *linuxService) ProbeStatus() (Status, error) {
-	out, err := s.runOutput("systemctl", "show", "telemetron.service", "--property=LoadState,ActiveState,SubState,ActiveEnterTimestamp", "--value")
+	unitName := s.unitName()
+	out, err := s.runOutput("systemctl", "show", unitName, "--property=LoadState,ActiveState,SubState,ActiveEnterTimestamp", "--value")
 	if err != nil {
 		return Status{Detail: "unknown"}, nil
 	}
@@ -267,12 +294,18 @@ func (s *linuxService) ProbeStatus() (Status, error) {
 	return Status{Installed: installed, Active: active, Detail: detail}, nil
 }
 
-func renderUnit(configPath, runAsUser, runAsGroup, binPath string) string {
+func renderUnit(configPath, runAsUser, runAsGroup, binPath, instance string) string {
+	unitDescription := "telemetron OTLP metrics sidecar"
+	partOf := ""
+	if instance != "" {
+		unitDescription = fmt.Sprintf("telemetron OTLP metrics sidecar (%s)", instance)
+		partOf = "PartOf=telemetron.service\nAfter=telemetron.service\n"
+	}
 	return fmt.Sprintf(`[Unit]
-Description=telemetron OTLP metrics sidecar
+Description=%s
 After=network-online.target
 Wants=network-online.target
-StartLimitIntervalSec=600
+%sStartLimitIntervalSec=600
 StartLimitBurst=10
 
 [Service]
@@ -294,7 +327,7 @@ StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
-`, runAsUser, runAsGroup, binPath, configPath)
+`, unitDescription, partOf, runAsUser, runAsGroup, binPath, configPath)
 }
 
 func (s *linuxService) copySelf() error {

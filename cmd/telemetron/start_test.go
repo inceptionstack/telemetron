@@ -12,19 +12,12 @@ import (
 )
 
 func TestDeclaredForExporterIncludesInstallIDWhenPresent(t *testing.T) {
-	// NOT t.Parallel(): mutates package-global readInstallID and
-	// setupInstallIDPath. TestDeclaredForExporterSkipsMissingInstallID
-	// touches the same globals; running them in parallel is a race.
-
 	prevReadInstallID := readInstallID
-	prevInstallIDPath := setupInstallIDPath
 	t.Cleanup(func() {
 		readInstallID = prevReadInstallID
-		setupInstallIDPath = prevInstallIDPath
 	})
-	setupInstallIDPath = "/tmp/test-install-id"
 	readInstallID = func(path string) (string, error) {
-		if path != setupInstallIDPath {
+		if path != "/tmp/test-install-id" {
 			t.Fatalf("unexpected path: %q", path)
 		}
 		return "550e8400-e29b-41d4-a716-446655440000", nil
@@ -37,6 +30,7 @@ func TestDeclaredForExporterIncludesInstallIDWhenPresent(t *testing.T) {
 			Environment:  "prod",
 			PackVersion:  "0.3.0",
 		},
+		Paths: config.Paths{InstallIDFile: "/tmp/test-install-id"},
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	if declared["install_id"] != "550e8400-e29b-41d4-a716-446655440000" {
@@ -45,15 +39,10 @@ func TestDeclaredForExporterIncludesInstallIDWhenPresent(t *testing.T) {
 }
 
 func TestDeclaredForExporterSkipsMissingInstallID(t *testing.T) {
-	// NOT t.Parallel(): see note on sibling test.
-
 	prevReadInstallID := readInstallID
-	prevInstallIDPath := setupInstallIDPath
 	t.Cleanup(func() {
 		readInstallID = prevReadInstallID
-		setupInstallIDPath = prevInstallIDPath
 	})
-	setupInstallIDPath = "/tmp/test-install-id"
 	readInstallID = func(path string) (string, error) {
 		return "", os.ErrNotExist
 	}

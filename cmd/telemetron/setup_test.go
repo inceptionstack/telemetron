@@ -222,19 +222,14 @@ func TestRunSetup_FailsPreconditionWhenSystemdMissing(t *testing.T) {
 }
 
 func TestVerifyFirstFlushIncludesLastHTTPResponse(t *testing.T) {
-	prevReadStatus := readSetupStatus
-	t.Cleanup(func() {
-		readSetupStatus = prevReadStatus
+	statusFile := filepath.Join(t.TempDir(), "status.json")
+	store := status.New(statusFile)
+	_ = store.Write(status.Snapshot{
+		LastHTTPStatus: 403,
+		LastHTTPBody:   "forbidden_token_invalid",
 	})
 
-	readSetupStatus = func() (status.Snapshot, error) {
-		return status.Snapshot{
-			LastHTTPStatus: 403,
-			LastHTTPBody:   "forbidden_token_invalid",
-		}, nil
-	}
-
-	err := verifyFirstFlush(&setupEmitter{}, 0)
+	err := verifyFirstFlush(&setupEmitter{}, 0, statusFile)
 	if err == nil {
 		t.Fatal("expected timeout error")
 	}
@@ -287,18 +282,18 @@ openclaw:
 	prevPlatform := setupPlatform
 	prevGeteuid := setupGeteuid
 	prevPrecondition := setupServicePrecondition
-	prevNewService := newSetupService
+	prevNewService := newSetupServiceForInstance
 	t.Cleanup(func() {
 		setupPlatform = prevPlatform
 		setupGeteuid = prevGeteuid
 		setupServicePrecondition = prevPrecondition
-		newSetupService = prevNewService
+		newSetupServiceForInstance = prevNewService
 	})
 
 	setupPlatform = "linux"
 	setupGeteuid = func() int { return 1000 }
 	setupServicePrecondition = func() error { return nil }
-	newSetupService = func() service.Service {
+	newSetupServiceForInstance = func(_ string) service.Service {
 		t.Fatal("service should not be constructed on unchanged setup")
 		return nil
 	}
@@ -338,23 +333,25 @@ func TestRunSetup_EmitsProgressSteps(t *testing.T) {
 	prevPlatform := setupPlatform
 	prevGeteuid := setupGeteuid
 	prevPrecondition := setupServicePrecondition
-	prevNewService := newSetupService
-	prevReadStatus := readSetupStatus
+	prevNewService := newSetupServiceForInstance
+	prevStatusOverride := setupStatusFileOverride
 	t.Cleanup(func() {
 		setupPlatform = prevPlatform
 		setupGeteuid = prevGeteuid
 		setupServicePrecondition = prevPrecondition
-		newSetupService = prevNewService
-		readSetupStatus = prevReadStatus
+		newSetupServiceForInstance = prevNewService
+		setupStatusFileOverride = prevStatusOverride
 	})
+
+	// Write a status file that indicates a successful flush
+	statusFile := filepath.Join(t.TempDir(), "status.json")
+	_ = status.New(statusFile).Write(status.Snapshot{LastFlushAt: time.Now().UTC(), LastHTTPStatus: 200})
+	setupStatusFileOverride = statusFile
 
 	setupPlatform = "linux"
 	setupGeteuid = func() int { return 1000 }
 	setupServicePrecondition = func() error { return nil }
-	newSetupService = func() service.Service { return fakeSetupService{} }
-	readSetupStatus = func() (status.Snapshot, error) {
-		return status.Snapshot{LastFlushAt: time.Now().UTC(), LastHTTPStatus: 200}, nil
-	}
+	newSetupServiceForInstance = func(_ string) service.Service { return fakeSetupService{} }
 
 	cmd := newSetupCmd()
 	var stdout bytes.Buffer
@@ -395,13 +392,13 @@ func TestRunSetup_AutoEnrollOptOutSkipsServiceStart(t *testing.T) {
 	prevPlatform := setupPlatform
 	prevGeteuid := setupGeteuid
 	prevPrecondition := setupServicePrecondition
-	prevNewService := newSetupService
+	prevNewService := newSetupServiceForInstance
 	prevSetupTokenPath := setupTokenPath
 	t.Cleanup(func() {
 		setupPlatform = prevPlatform
 		setupGeteuid = prevGeteuid
 		setupServicePrecondition = prevPrecondition
-		newSetupService = prevNewService
+		newSetupServiceForInstance = prevNewService
 		setupTokenPath = prevSetupTokenPath
 	})
 
@@ -409,7 +406,7 @@ func TestRunSetup_AutoEnrollOptOutSkipsServiceStart(t *testing.T) {
 	setupGeteuid = func() int { return 1000 }
 	setupServicePrecondition = func() error { return nil }
 	setupTokenPath = t.TempDir() + "/missing-token"
-	newSetupService = func() service.Service {
+	newSetupServiceForInstance = func(_ string) service.Service {
 		t.Fatal("service should not be constructed when auto-enroll is opted out")
 		return nil
 	}
@@ -448,8 +445,8 @@ func TestRunSetup_AutoEnrollUsesEnrolledToken(t *testing.T) {
 	prevPlatform := setupPlatform
 	prevGeteuid := setupGeteuid
 	prevPrecondition := setupServicePrecondition
-	prevNewService := newSetupService
-	prevReadStatus := readSetupStatus
+	prevNewService := newSetupServiceForInstance
+	prevStatusOverride := setupStatusFileOverride
 	prevNewEnrollClient := newEnrollClient
 	prevReadOrGenerateInstallID := readOrGenerateInstallID
 	prevComputeMachineID := computeMachineID
@@ -458,21 +455,23 @@ func TestRunSetup_AutoEnrollUsesEnrolledToken(t *testing.T) {
 		setupPlatform = prevPlatform
 		setupGeteuid = prevGeteuid
 		setupServicePrecondition = prevPrecondition
-		newSetupService = prevNewService
-		readSetupStatus = prevReadStatus
+		newSetupServiceForInstance = prevNewService
+		setupStatusFileOverride = prevStatusOverride
 		newEnrollClient = prevNewEnrollClient
 		readOrGenerateInstallID = prevReadOrGenerateInstallID
 		computeMachineID = prevComputeMachineID
 		setupTokenPath = prevSetupTokenPath
 	})
 
+	// Write a status file that indicates a successful flush
+	statusFile := filepath.Join(t.TempDir(), "status.json")
+	_ = status.New(statusFile).Write(status.Snapshot{LastFlushAt: time.Now().UTC(), LastHTTPStatus: 200})
+	setupStatusFileOverride = statusFile
+
 	setupPlatform = "linux"
 	setupGeteuid = func() int { return 1000 }
 	setupServicePrecondition = func() error { return nil }
 	setupTokenPath = t.TempDir() + "/missing-token"
-	readSetupStatus = func() (status.Snapshot, error) {
-		return status.Snapshot{LastFlushAt: time.Now().UTC(), LastHTTPStatus: 200}, nil
-	}
 	newEnrollClient = func(endpoint string, httpClient *http.Client) *enroll.Client {
 		return enroll.NewClient(server.URL, server.Client())
 	}
@@ -484,7 +483,7 @@ func TestRunSetup_AutoEnrollUsesEnrolledToken(t *testing.T) {
 	}
 
 	fake := &capturingSetupService{}
-	newSetupService = func() service.Service { return fake }
+	newSetupServiceForInstance = func(_ string) service.Service { return fake }
 
 	cmd := newSetupCmd()
 	var stdout bytes.Buffer
@@ -526,8 +525,8 @@ func TestRunSetup_AutoEnrollWritesInstallIDAndTokenFiles(t *testing.T) {
 	prevPlatform := setupPlatform
 	prevGeteuid := setupGeteuid
 	prevPrecondition := setupServicePrecondition
-	prevNewService := newSetupService
-	prevReadStatus := readSetupStatus
+	prevNewService := newSetupServiceForInstance
+	prevStatusOverride := setupStatusFileOverride
 	prevNewEnrollClient := newEnrollClient
 	prevComputeMachineID := computeMachineID
 	prevReadOrGenerate := readOrGenerateInstallID
@@ -537,8 +536,8 @@ func TestRunSetup_AutoEnrollWritesInstallIDAndTokenFiles(t *testing.T) {
 		setupPlatform = prevPlatform
 		setupGeteuid = prevGeteuid
 		setupServicePrecondition = prevPrecondition
-		newSetupService = prevNewService
-		readSetupStatus = prevReadStatus
+		newSetupServiceForInstance = prevNewService
+		setupStatusFileOverride = prevStatusOverride
 		newEnrollClient = prevNewEnrollClient
 		computeMachineID = prevComputeMachineID
 		readOrGenerateInstallID = prevReadOrGenerate
@@ -546,12 +545,14 @@ func TestRunSetup_AutoEnrollWritesInstallIDAndTokenFiles(t *testing.T) {
 		setupTokenPath = prevSetupTokenPath
 	})
 
+	// Write a status file that indicates a successful flush
+	statusFile := filepath.Join(t.TempDir(), "status.json")
+	_ = status.New(statusFile).Write(status.Snapshot{LastFlushAt: time.Now().UTC(), LastHTTPStatus: 200})
+	setupStatusFileOverride = statusFile
+
 	setupPlatform = "linux"
 	setupGeteuid = func() int { return 1000 }
 	setupServicePrecondition = func() error { return nil }
-	readSetupStatus = func() (status.Snapshot, error) {
-		return status.Snapshot{LastFlushAt: time.Now().UTC(), LastHTTPStatus: 200}, nil
-	}
 	newEnrollClient = func(endpoint string, httpClient *http.Client) *enroll.Client {
 		return enroll.NewClient(server.URL, server.Client())
 	}
@@ -570,7 +571,7 @@ func TestRunSetup_AutoEnrollWritesInstallIDAndTokenFiles(t *testing.T) {
 	}
 	setupInstallIDPath = installIDPath
 	setupTokenPath = tokenPath
-	newSetupService = func() service.Service {
+	newSetupServiceForInstance = func(_ string) service.Service {
 		// Use a tempdir-aware service stub that writes the token to the
 		// path this test controls, rather than cfg.TokenFile (which would
 		// default to the real /etc/telemetron/token). This mirrors what
@@ -755,7 +756,7 @@ func TestLoadExistingConfigReturnsNilWhenNoConfigFileOnDisk(t *testing.T) {
 	t.Setenv("TELEMETRON_ENDPOINT", "https://example.test/v1/metrics")
 	t.Setenv("TELEMETRON_MODE", "openclaw")
 
-	if got := loadExistingConfig(); got != nil {
+	if got := loadExistingConfig(""); got != nil {
 		t.Fatalf("loadExistingConfig() = %#v; want nil when %s does not exist", got, missing)
 	}
 }
@@ -773,7 +774,7 @@ func TestLoadExistingConfigReturnsConfigWhenFileExists(t *testing.T) {
 	}
 	t.Setenv("TELEMETRON_CONFIG", cfgPath)
 
-	got := loadExistingConfig()
+	got := loadExistingConfig("")
 	if got == nil {
 		t.Fatalf("loadExistingConfig() = nil; want *config.Config when %s exists", cfgPath)
 	}
