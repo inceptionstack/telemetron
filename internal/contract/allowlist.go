@@ -33,6 +33,7 @@ var allowedMetricAttrs = map[string]map[string]struct{}{
 	MetricToolCall: {
 		"outcome":    {},
 		"tool.class": {},
+		"tool.name":  {},
 	},
 	MetricError: {
 		"error.type": {},

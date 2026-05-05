@@ -5,6 +5,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/inceptionstack/telemetron/internal/config"
@@ -12,11 +13,13 @@ import (
 )
 
 func TestInstallIDPathForInstance_Primary(t *testing.T) {
-	assert.Equal(t, "/etc/telemetron/install-id", installIDPathForInstance(""))
+	expected := config.InstancePaths(runtime.GOOS, "").InstallIDFile
+	assert.Equal(t, expected, installIDPathForInstance(""))
 }
 
 func TestInstallIDPathForInstance_Named(t *testing.T) {
-	assert.Equal(t, "/etc/telemetron/install-id-roundhouse", installIDPathForInstance("roundhouse"))
+	expected := config.InstancePaths(runtime.GOOS, "roundhouse").InstallIDFile
+	assert.Equal(t, expected, installIDPathForInstance("roundhouse"))
 }
 
 func TestIsSecondaryInstance(t *testing.T) {

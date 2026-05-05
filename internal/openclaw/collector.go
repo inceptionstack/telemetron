@@ -267,9 +267,14 @@ func (c *Collector) handleMessage(path string, msg map[string]any, fileState *Fi
 		if jsonx.AsString(block["type"]) != "toolCall" {
 			continue
 		}
+		toolName := jsonx.AsString(block["name"])
+		if toolName == "" {
+			toolName = "unknown"
+		}
 		sink.Counter(contract.MetricToolCall, map[string]string{
 			"outcome":    outcome,
-			"tool.class": DeriveToolClass(jsonx.AsString(block["name"])),
+			"tool.name":  toolName,
+			"tool.class": DeriveToolClass(toolName),
 		})
 	}
 }

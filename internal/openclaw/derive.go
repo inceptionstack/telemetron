@@ -11,6 +11,7 @@ const Mode = "openclaw"
 
 var toolClassMap = map[string]string{
 	"exec":             "shell",
+	"bash":             "shell",
 	"process":          "shell",
 	"read":             "file",
 	"write":            "file",
@@ -32,8 +33,11 @@ var toolClassMap = map[string]string{
 	"session_status":   "system",
 	"s3":               "aws",
 	"sts":              "aws",
-	"image":            "other",
-	"pdf":              "other",
+	"image":            "media",
+	"pdf":              "media",
+	"browser":          "http",
+	"cron":             "system",
+	"gateway":          "system",
 }
 
 func DeriveModelFamily(provider, model string) string {
