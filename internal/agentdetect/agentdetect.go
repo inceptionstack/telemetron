@@ -80,11 +80,10 @@ func DetectOpenClaw(opts Options) (Detection, error) {
 
 	home := opts.HomeDirOverride
 	if home == "" {
-		u, err := user.Lookup(username)
+		home, err = lookupHomeDir(username)
 		if err != nil {
-			return Detection{}, fmt.Errorf("lookup user %q: %w", username, err)
+			return Detection{}, err
 		}
-		home = u.HomeDir
 	}
 	if home == "" {
 		return Detection{}, nil
@@ -160,6 +159,14 @@ func resolveUser(explicit string) (string, error) {
 		return "", err
 	}
 	return u.Username, nil
+}
+
+func lookupHomeDir(username string) (string, error) {
+	u, err := user.Lookup(username)
+	if err != nil {
+		return "", fmt.Errorf("lookup user %q: %w", username, err)
+	}
+	return u.HomeDir, nil
 }
 
 // FindOpenClawMainCandidates scans plausible home directories for a

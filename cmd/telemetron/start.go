@@ -15,6 +15,7 @@ import (
 	"github.com/inceptionstack/telemetron/internal/config"
 	"github.com/inceptionstack/telemetron/internal/openclaw"
 	"github.com/inceptionstack/telemetron/internal/otlp"
+	"github.com/inceptionstack/telemetron/internal/roundhouse"
 	"github.com/inceptionstack/telemetron/internal/status"
 	"github.com/inceptionstack/telemetron/internal/telemetry"
 	"github.com/inceptionstack/telemetron/internal/tier"
@@ -110,10 +111,15 @@ func newStartCmd() *cobra.Command {
 }
 
 func declaredForExporter(cfg config.Config, logger *slog.Logger) map[string]string {
-	// Detect openclaw version if not explicitly configured
+	// Detect pack version based on mode
 	packVersion := cfg.Declared.PackVersion
 	if packVersion == "" {
-		packVersion = openclaw.DetectVersion()
+		switch cfg.Mode {
+		case "openclaw":
+			packVersion = openclaw.DetectVersion()
+		case "roundhouse":
+			packVersion = roundhouse.DetectVersion()
+		}
 	}
 	declared := map[string]string{
 		"deployment_id":      cfg.Declared.DeploymentID,

@@ -42,13 +42,13 @@ func init() {
 		Name:          Mode,
 		Description:   "OpenClaw agent session tailer",
 		Factory:       newCollector,
-		DecodeFn:      decodeConfig,
+		DecodeFn:      DecodeConfig,
 		DefaultConfig: defaultConfig,
 	})
 }
 
 func newCollector(rawConfig any, store *status.Store, _ config.Config) (collectorapi.Collector, error) {
-	decoded, err := decodeConfig(rawConfig)
+	decoded, err := DecodeConfig(rawConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -274,7 +274,7 @@ func (c *Collector) handleMessage(path string, msg map[string]any, fileState *Fi
 	}
 }
 
-func decodeConfig(raw any) (any, error) {
+func DecodeConfig(raw any) (any, error) {
 	cfg := Config{}
 	decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		DecodeHook:       mapstructure.StringToTimeDurationHookFunc(),
@@ -304,11 +304,16 @@ func decodeConfig(raw any) (any, error) {
 	return cfg, nil
 }
 
+const (
+	DefaultFlushInterval = 15 * time.Second
+	DefaultScanInterval  = 15 * time.Second
+)
+
 func defaultConfig(paths config.Paths) any {
 	return Config{
 		SessionDir:    defaultSessionDir(),
-		FlushInterval: 15 * time.Second,
-		ScanInterval:  15 * time.Second,
+		FlushInterval: DefaultFlushInterval,
+		ScanInterval:  DefaultScanInterval,
 		StateFile:     filepath.Join(paths.StateDir, "openclaw.state.json"),
 	}
 }
