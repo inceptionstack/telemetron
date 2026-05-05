@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	colmetricpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
@@ -28,6 +29,7 @@ type Exporter struct {
 	endpoint string
 	token    string
 	client   *http.Client
+	mu       sync.RWMutex
 	declared map[string]string
 }
 
@@ -51,6 +53,14 @@ func NewExporter(endpoint, token string, declared map[string]string, client *htt
 		client:   client,
 		declared: declared,
 	}
+}
+
+// UpdateDeclared sets or updates a key in the declared resource attributes.
+// Safe to call concurrently with Export.
+func (e *Exporter) UpdateDeclared(key, value string) {
+	e.mu.Lock()
+	e.declared[key] = value
+	e.mu.Unlock()
 }
 
 // sanitizeToken normalizes a bearer token value so it can be used as an
@@ -119,6 +129,7 @@ func (e *Exporter) Marshal(points []Point) ([]byte, error) {
 		})
 	}
 
+	e.mu.RLock()
 	resourceAttrs := make([]*commonpb.KeyValue, 0, len(e.declared))
 	for key, value := range e.declared {
 		if value == "" {
@@ -131,6 +142,7 @@ func (e *Exporter) Marshal(points []Point) ([]byte, error) {
 			},
 		})
 	}
+	e.mu.RUnlock()
 
 	req := &colmetricpb.ExportMetricsServiceRequest{
 		ResourceMetrics: []*metricpb.ResourceMetrics{{

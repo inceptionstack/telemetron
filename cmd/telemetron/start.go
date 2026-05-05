@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/inceptionstack/telemetron/internal/collectorapi"
 	"github.com/inceptionstack/telemetron/internal/config"
@@ -68,6 +69,9 @@ func newStartCmd() *cobra.Command {
 			ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 			defer cancel()
 
+			// Watch tier file for changes and update declared attrs dynamically
+			go watchTierFile(ctx, cfg.Declared.Tier, exporter, logger)
+
 			// Start auto-updater in background if this is a managed install
 			updateCh := make(chan int, 1)
 			if updater.IsManagedInstall() {
@@ -108,10 +112,11 @@ func declaredForExporter(cfg config.Config, logger *slog.Logger) map[string]stri
 		packVersion = openclaw.DetectVersion()
 	}
 	declared := map[string]string{
-		"deployment_id": cfg.Declared.DeploymentID,
-		"tier":          cfg.Declared.Tier,
-		"environment":   cfg.Declared.Environment,
-		"pack_version":  packVersion,
+		"deployment_id":      cfg.Declared.DeploymentID,
+		"tier":               cfg.Declared.Tier,
+		"environment":        cfg.Declared.Environment,
+		"pack_version":       packVersion,
+		"telemetron_version": version,
 	}
 	installID, err := readInstallID(setupInstallIDPath)
 	if err != nil {
@@ -122,4 +127,27 @@ func declaredForExporter(cfg config.Config, logger *slog.Logger) map[string]stri
 	}
 	declared["install_id"] = installID
 	return declared
+}
+
+// watchTierFile polls the tier file every 30s and updates the exporter's
+// declared tier attribute if it changes. This allows operators to change
+// the tier by editing ~/.loki/tier without restarting telemetron.
+func watchTierFile(ctx context.Context, initialTier string, exporter *otlp.Exporter, logger *slog.Logger) {
+	currentTier := initialTier
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			info := readInstallerInfo()
+			if info.Tier != "" && info.Tier != currentTier {
+				logger.Info("tier file changed", "old", currentTier, "new", info.Tier)
+				exporter.UpdateDeclared("tier", info.Tier)
+				currentTier = info.Tier
+			}
+		}
+	}
 }

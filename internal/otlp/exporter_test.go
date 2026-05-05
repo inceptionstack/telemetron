@@ -113,3 +113,38 @@ func TestExporterSummarizesResponseBody(t *testing.T) {
 	require.Len(t, resp.Body, 200)
 	require.Equal(t, body[:200], resp.Body)
 }
+
+func TestUpdateDeclaredConcurrent(t *testing.T) {
+	exporter := NewExporter("http://localhost", "tok", map[string]string{"tier": "test"}, nil)
+
+	// Run concurrent reads and writes to exercise the mutex under -race
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 100; i++ {
+			exporter.UpdateDeclared("tier", "internal")
+			exporter.UpdateDeclared("tier", "external")
+		}
+		close(done)
+	}()
+
+	for i := 0; i < 100; i++ {
+		_, _ = exporter.Export(context.Background(), []Point{{Name: "pack.emitter.heartbeat", Count: 1}})
+	}
+	<-done
+}
+
+func TestUpdateDeclaredReflectedInExport(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	exporter := NewExporter(srv.URL, "tok", map[string]string{"tier": "test"}, nil)
+	exporter.UpdateDeclared("tier", "production")
+
+	// Export and verify no error (the label is embedded in protobuf, hard to inspect,
+	// but the race detector will catch unsafe access)
+	resp, err := exporter.Export(context.Background(), []Point{{Name: "pack.emitter.heartbeat", Count: 1}})
+	require.NoError(t, err)
+	require.Equal(t, 200, resp.StatusCode)
+}

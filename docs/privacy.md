@@ -24,8 +24,9 @@ Normal OTLP metric flushes send:
 - `tier` as an OTLP resource attribute (`internal`, `external`, or `test`)
 - `environment` as an OTLP resource attribute (operator-configured environment name)
 - `pack_version` as an OTLP resource attribute (version of the pack being observed)
+- `telemetron_version` as an OTLP resource attribute (version of the telemetron binary)
 
-`deployment_id`, `tier`, `environment`, and `pack_version` come from the operator's config, not from the host. They never contain hostnames, usernames, or paths.
+`deployment_id`, `tier`, `environment`, `pack_version`, and `telemetron_version` come from the operator's config or binary metadata, not from the host. They never contain hostnames, usernames, or paths.
 
 ## What we never send
 
