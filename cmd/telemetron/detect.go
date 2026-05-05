@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/inceptionstack/telemetron/internal/agentdetect"
 	"github.com/spf13/cobra"
@@ -124,7 +125,7 @@ func runDetect(cmd *cobra.Command, f *detectFlags) error {
 			continue
 		}
 
-		if !f.force && instanceAlreadyConfigured(instance) {
+		if !f.force && instanceAlreadyConfigured(instance) && instanceModeMatches(instance, d.Mode) {
 			fmt.Fprintf(cmd.OutOrStdout(), "  %s already configured, skipping (use --force to reconfigure)\n", arrow)
 			configured++
 			continue
@@ -169,6 +170,7 @@ func detectPacks(f *detectFlags) ([]agentdetect.Detection, []error) {
 }
 
 // detectFromAllHomes scans /home/* (and /root) for agent directories.
+// Passes explicit User so RunAsUser resolves to the home dir owner, not root.
 func detectFromAllHomes() []agentdetect.Detection {
 	var results []agentdetect.Detection
 	seen := map[string]bool{}
@@ -179,8 +181,12 @@ func detectFromAllHomes() []agentdetect.Detection {
 			if !e.IsDir() {
 				continue
 			}
-			home := "/home/" + e.Name()
-			detections, _ := agentdetect.DetectAll(agentdetect.Options{HomeDirOverride: home})
+			username := e.Name()
+			home := "/home/" + username
+			detections, _ := agentdetect.DetectAll(agentdetect.Options{
+				HomeDirOverride: home,
+				User:            username,
+			})
 			for _, d := range detections {
 				key := d.Mode + ":" + d.SessionDir
 				if !seen[key] {
@@ -192,7 +198,10 @@ func detectFromAllHomes() []agentdetect.Detection {
 	}
 
 	// Also check /root
-	detections, _ := agentdetect.DetectAll(agentdetect.Options{HomeDirOverride: "/root"})
+	detections, _ := agentdetect.DetectAll(agentdetect.Options{
+		HomeDirOverride: "/root",
+		User:            "root",
+	})
 	for _, d := range detections {
 		key := d.Mode + ":" + d.SessionDir
 		if !seen[key] {
@@ -207,6 +216,25 @@ func instanceAlreadyConfigured(instance string) bool {
 	path := configPathForInstance(instance)
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// instanceModeMatches checks if the existing config's mode matches the detected mode.
+// Prevents skipping setup when config exists but is for a different pack.
+func instanceModeMatches(instance, mode string) bool {
+	path := configPathForInstance(instance)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	// Simple check: look for "mode: <mode>" line
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "mode:") {
+			v := strings.TrimSpace(strings.TrimPrefix(line, "mode:"))
+			return v == mode
+		}
+	}
+	return false
 }
 
 func configPathForInstance(instance string) string {
