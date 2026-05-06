@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 )
 
-// DetectRoundhouse looks for ~/.roundhouse/sessions/main/ on disk.
+// DetectRoundhouse looks for roundhouse on disk.
+// Checks for ~/.roundhouse/sessions/main/ (active sessions) or
+// ~/.roundhouse/ directory (installed, awaiting first session).
 // Returns Detection with Mode="roundhouse" if found, empty Detection otherwise.
 func DetectRoundhouse(opts Options) (Detection, error) {
 	username, err := resolveUser(opts.User)
@@ -27,8 +29,23 @@ func DetectRoundhouse(opts Options) (Detection, error) {
 		return Detection{}, nil
 	}
 
-	sessionsDir := filepath.Join(opts.FSRoot, home, ".roundhouse", "sessions", "main")
+	roundhouseDir := filepath.Join(opts.FSRoot, home, ".roundhouse")
+	sessionsDir := filepath.Join(roundhouseDir, "sessions", "main")
+
+	// Prefer sessions dir if it exists (active)
 	if isDir(sessionsDir) {
+		return Detection{
+			Mode:       "roundhouse",
+			SessionDir: sessionsDir,
+			RunAsUser:  username,
+			AgentName:  "main",
+		}, nil
+	}
+
+	// Fall back: if ~/.roundhouse/ exists (installed but no sessions yet),
+	// return the expected sessions path. The collector handles non-existent
+	// session dirs gracefully via empty scans.
+	if isDir(roundhouseDir) {
 		return Detection{
 			Mode:       "roundhouse",
 			SessionDir: sessionsDir,
