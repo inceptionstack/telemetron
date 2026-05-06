@@ -93,6 +93,18 @@ func DetectOpenClaw(opts Options) (Detection, error) {
 	entries, err := os.ReadDir(agentsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
+			// agents dir doesn't exist — check if ~/.openclaw/ exists
+			// (installed but hasn't run yet). Return expected "main" path.
+			// The collector handles non-existent session dirs gracefully.
+			oclawDir := filepath.Join(opts.FSRoot, home, ".openclaw")
+			if info, statErr := os.Stat(oclawDir); statErr == nil && info.IsDir() {
+				return Detection{
+					Mode:       "openclaw",
+					SessionDir: filepath.Join(agentsDir, "main", "sessions"),
+					RunAsUser:  username,
+					AgentName:  "main",
+				}, nil
+			}
 			return Detection{}, nil
 		}
 		return Detection{}, fmt.Errorf("read %s: %w", agentsDir, err)
