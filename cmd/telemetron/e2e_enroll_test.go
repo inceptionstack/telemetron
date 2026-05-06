@@ -62,8 +62,8 @@ func TestE2EEnrollAndMetricsFlow(t *testing.T) {
 	prevPlatform := setupPlatform
 	prevGeteuid := setupGeteuid
 	prevPrecondition := setupServicePrecondition
-	prevNewService := newSetupService
-	prevReadStatus := readSetupStatus
+	prevNewService := newSetupServiceForInstance
+	prevStatusOverride := setupStatusFileOverride
 	prevComputeMachineID := computeMachineID
 	prevSetupInstallIDPath := setupInstallIDPath
 	prevSetupTokenPath := setupTokenPath
@@ -71,25 +71,27 @@ func TestE2EEnrollAndMetricsFlow(t *testing.T) {
 		setupPlatform = prevPlatform
 		setupGeteuid = prevGeteuid
 		setupServicePrecondition = prevPrecondition
-		newSetupService = prevNewService
-		readSetupStatus = prevReadStatus
+		newSetupServiceForInstance = prevNewService
+		setupStatusFileOverride = prevStatusOverride
 		computeMachineID = prevComputeMachineID
 		setupInstallIDPath = prevSetupInstallIDPath
 		setupTokenPath = prevSetupTokenPath
 	})
 
+	// Write a status file that indicates a successful flush
+	statusFile := filepath.Join(t.TempDir(), "status.json")
+	_ = status.New(statusFile).Write(status.Snapshot{LastFlushAt: time.Now().UTC(), LastHTTPStatus: 200})
+	setupStatusFileOverride = statusFile
+
 	setupPlatform = "linux"
 	setupGeteuid = func() int { return 1000 }
 	setupServicePrecondition = func() error { return nil }
-	readSetupStatus = func() (status.Snapshot, error) {
-		return status.Snapshot{LastFlushAt: time.Now().UTC(), LastHTTPStatus: 200}, nil
-	}
 	computeMachineID = func() (string, error) {
 		return "sha256:" + strings.Repeat("a", 64), nil
 	}
 	setupInstallIDPath = installIDPath
 	setupTokenPath = tokenPath
-	newSetupService = func() service.Service { return &e2eWritingSetupService{tokenPath: tokenPath, configPath: configPath} }
+	newSetupServiceForInstance = func(_ string) service.Service { return &e2eWritingSetupService{tokenPath: tokenPath, configPath: configPath} }
 	t.Setenv("TELEMETRON_ENROLL_ENDPOINT", server.URL+"/v1/enroll")
 
 	cmd := newSetupCmd()

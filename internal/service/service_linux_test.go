@@ -91,12 +91,25 @@ func (f *fakeFS) WalkDir(root string, fn filepath.WalkFunc) error {
 }
 
 func TestRenderUnitIncludesRequiredLines(t *testing.T) {
-	unit := renderUnit("/etc/telemetron/config.yaml", "ec2-user", "ec2-user", "/usr/local/bin/telemetron")
+	unit := renderUnit("/etc/telemetron/config.yaml", "ec2-user", "ec2-user", "/usr/local/bin/telemetron", "")
 	require.Contains(t, unit, "User=ec2-user")
 	require.Contains(t, unit, "Group=ec2-user")
 	require.Contains(t, unit, "ExecStart=/usr/local/bin/telemetron start --config /etc/telemetron/config.yaml")
 	require.Contains(t, unit, "ReadWritePaths=/var/lib/telemetron")
 	require.Contains(t, unit, "ProtectSystem=strict")
+}
+
+func TestRenderUnitSecondaryIncludesPartOf(t *testing.T) {
+	unit := renderUnit("/etc/telemetron/config-roundhouse.yaml", "ec2-user", "ec2-user", "/usr/local/bin/telemetron", "roundhouse")
+	require.Contains(t, unit, "PartOf=telemetron.service")
+	require.Contains(t, unit, "After=telemetron.service")
+	require.Contains(t, unit, "Description=telemetron OTLP metrics sidecar (roundhouse)")
+	require.Contains(t, unit, "ExecStart=/usr/local/bin/telemetron start --config /etc/telemetron/config-roundhouse.yaml")
+}
+
+func TestRenderUnitPrimaryNoPartOf(t *testing.T) {
+	unit := renderUnit("/etc/telemetron/config.yaml", "ec2-user", "ec2-user", "/usr/local/bin/telemetron", "")
+	require.NotContains(t, unit, "PartOf")
 }
 
 func TestResolveRunAsUserPrefersExplicit(t *testing.T) {

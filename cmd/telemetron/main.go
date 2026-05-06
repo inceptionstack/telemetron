@@ -8,6 +8,7 @@ import (
 	"runtime"
 
 	_ "github.com/inceptionstack/telemetron/internal/openclaw"
+	_ "github.com/inceptionstack/telemetron/internal/roundhouse"
 	"github.com/spf13/cobra"
 )
 
@@ -34,7 +35,7 @@ func newRootCmd() *cobra.Command {
 	}
 	cmd.PersistentFlags().StringVar(&configPath, "config", "", "config file path (env: TELEMETRON_CONFIG, default: platform-specific)")
 	cmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "trace|debug|info|warn|error (env: TELEMETRON_LOG_LEVEL, config: log_level)")
-	cmd.AddCommand(newInstallCmd(), newSetupCmd(), newUninstallCmd(), newStartCmd(), newStatusCmd(), newUpdateCmd(), newVersionCmd())
+	cmd.AddCommand(newInstallCmd(), newSetupCmd(), newDetectCmd(), newUninstallCmd(), newStartCmd(), newStatusCmd(), newUpdateCmd(), newVersionCmd())
 	return cmd
 }
 

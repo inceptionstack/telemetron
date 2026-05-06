@@ -29,5 +29,11 @@ type Service interface {
 }
 
 func New() Service {
-	return newService()
+	return NewForInstance("")
+}
+
+// NewForInstance creates a service manager for a named instance.
+// Empty instance = primary.
+func NewForInstance(instance string) Service {
+	return newServiceWithInstance(instance)
 }

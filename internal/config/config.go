@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"os/user"
+	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -40,14 +42,17 @@ type DeclaredConfig struct {
 }
 
 type Paths struct {
-	ConfigPath string
-	TokenFile  string
-	StateDir   string
-	StatusFile string
+	ConfigPath    string
+	TokenFile     string
+	InstallIDFile string
+	StateDir      string
+	StatusFile    string
+	Instance      string // empty = primary
 }
 
 type LoadOptions struct {
 	ConfigPath    string
+	Instance      string
 	Overrides     map[string]any
 	BootstrapOnly bool
 	Platform      string
@@ -58,12 +63,27 @@ func Load(opts LoadOptions) (Config, error) {
 	if platform == "" {
 		platform = runtime.GOOS
 	}
-	paths := DefaultPaths(platform)
+	instance := opts.Instance
+	if err := ValidateInstance(instance); err != nil {
+		return Config{}, err
+	}
 
 	cfgPath := opts.ConfigPath
 	if envPath := os.Getenv("TELEMETRON_CONFIG"); envPath != "" {
 		cfgPath = envPath
 	}
+
+	// Derive instance from config path if not explicitly provided.
+	// Config files named "config-<instance>.yaml" imply an instance.
+	if instance == "" && cfgPath != "" {
+		instance = instanceFromConfigPath(cfgPath)
+		if err := ValidateInstance(instance); err != nil {
+			return Config{}, err
+		}
+	}
+
+	paths := InstancePaths(platform, instance)
+
 	if cfgPath == "" {
 		cfgPath = paths.ConfigPath
 	}
@@ -165,23 +185,68 @@ func (c Config) Marshal() ([]byte, error) {
 }
 
 func DefaultPaths(platform string) Paths {
+	return InstancePaths(platform, "")
+}
+
+// validInstanceRe restricts instance names to safe path components.
+var validInstanceRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+
+// ValidateInstance checks that an instance name is safe for use in file paths.
+// Returns an error if the name contains path traversal characters or is otherwise invalid.
+func ValidateInstance(instance string) error {
+	if instance == "" {
+		return nil // primary
+	}
+	if len(instance) > 64 {
+		return fmt.Errorf("instance name too long (max 64): %q", instance)
+	}
+	if !validInstanceRe.MatchString(instance) {
+		return fmt.Errorf("invalid instance name %q: must match [a-z0-9][a-z0-9-]*", instance)
+	}
+	return nil
+}
+
+// InstancePaths returns paths for a named instance. Empty instance = primary.
+func InstancePaths(platform, instance string) Paths {
 	switch platform {
 	case "darwin":
 		home := userHomeDir()
 		configDir := home + "/.config/telemetron"
 		stateDir := home + "/.local/share/telemetron"
+		if instance != "" {
+			return Paths{
+				ConfigPath:    configDir + "/config-" + instance + ".yaml",
+				TokenFile:     configDir + "/token-" + instance,
+				InstallIDFile: configDir + "/install-id-" + instance,
+				StateDir:      stateDir,
+				StatusFile:    stateDir + "/status-" + instance + ".json",
+				Instance:      instance,
+			}
+		}
 		return Paths{
-			ConfigPath: configDir + "/config.yaml",
-			TokenFile:  configDir + "/token",
-			StateDir:   stateDir,
-			StatusFile: stateDir + "/status.json",
+			ConfigPath:    configDir + "/config.yaml",
+			TokenFile:     configDir + "/token",
+			InstallIDFile: configDir + "/install-id",
+			StateDir:      stateDir,
+			StatusFile:    stateDir + "/status.json",
 		}
 	default:
+		if instance != "" {
+			return Paths{
+				ConfigPath:    "/etc/telemetron/config-" + instance + ".yaml",
+				TokenFile:     "/etc/telemetron/token-" + instance,
+				InstallIDFile: "/etc/telemetron/install-id-" + instance,
+				StateDir:      "/var/lib/telemetron",
+				StatusFile:    "/var/lib/telemetron/status-" + instance + ".json",
+				Instance:      instance,
+			}
+		}
 		return Paths{
-			ConfigPath: "/etc/telemetron/config.yaml",
-			TokenFile:  "/etc/telemetron/token",
-			StateDir:   "/var/lib/telemetron",
-			StatusFile: "/var/lib/telemetron/status.json",
+			ConfigPath:    "/etc/telemetron/config.yaml",
+			TokenFile:     "/etc/telemetron/token",
+			InstallIDFile: "/etc/telemetron/install-id",
+			StateDir:      "/var/lib/telemetron",
+			StatusFile:    "/var/lib/telemetron/status.json",
 		}
 	}
 }
@@ -194,6 +259,16 @@ func userHomeDir() string {
 		return current.HomeDir
 	}
 	return "/tmp"
+}
+
+// instanceFromConfigPath extracts instance name from "config-<instance>.yaml" filenames.
+// Returns empty string for primary configs ("config.yaml").
+func instanceFromConfigPath(path string) string {
+	base := filepath.Base(path)
+	if strings.HasPrefix(base, "config-") && strings.HasSuffix(base, ".yaml") {
+		return strings.TrimSuffix(strings.TrimPrefix(base, "config-"), ".yaml")
+	}
+	return ""
 }
 
 type modeRegistration struct {

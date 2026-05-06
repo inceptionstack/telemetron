@@ -28,6 +28,7 @@ var enumValues = map[string]map[string]struct{}{
 		"search":  {},
 		"memory":  {},
 		"agent":   {},
+		"media":   {},
 		"other":   {},
 		"unknown": {},
 	},

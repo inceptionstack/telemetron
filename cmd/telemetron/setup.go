@@ -28,10 +28,8 @@ var (
 	setupGeteuid               = os.Geteuid
 	findOpenClawMainCandidates = agentdetect.FindOpenClawMainCandidates
 	setupServicePrecondition   = service.SetupPrecondition
-	newSetupService            = service.New
-	readSetupStatus            = func() (status.Snapshot, error) {
-		return status.New("/var/lib/telemetron/status.json").Read()
-	}
+	newSetupServiceForInstance = service.NewForInstance
+	setupStatusFileOverride    = "" // testing hook: when non-empty, overrides cfg.Paths.StatusFile in health check
 )
 
 const unresolvedRootSessionHint = "cannot resolve session-dir under UID 0 with no $SUDO_USER set.\nPass --run-as <user> --session-dir <path>, or set TELEMETRON_RUN_AS /\nTELEMETRON_SESSION_DIR."
@@ -55,6 +53,7 @@ type setupFlags struct {
 	deploymentID     string
 	tier             string
 	healthTimeout    string
+	instance         string
 	insecureEndpoint bool
 
 	yes            bool
@@ -93,6 +92,7 @@ on-disk state and restarts the service as needed.`,
 	cmd.Flags().StringVar(&f.deploymentID, "deployment-id", "", "deployment id; default: loki@<hostname> (env: TELEMETRON_DEPLOYMENT_ID)")
 	cmd.Flags().StringVar(&f.tier, "tier", "", "internal|external|test (env: TELEMETRON_TIER)")
 	cmd.Flags().StringVar(&f.healthTimeout, "health-timeout", "", "health-check timeout; default: 60s (env: TELEMETRON_HEALTH_TIMEOUT)")
+	cmd.Flags().StringVar(&f.instance, "instance", "", "instance name for multi-pack; empty = primary (env: TELEMETRON_INSTANCE)")
 	cmd.Flags().BoolVar(&f.insecureEndpoint, "insecure-endpoint", false, "allow http:// endpoints (testing only)")
 	cmd.Flags().BoolVar(&f.yes, "yes", false, "skip the confirmation prompt; the summary is still printed")
 	cmd.Flags().BoolVar(&f.nonInteractive, "non-interactive", false, "never prompt; fail fast on missing required input")
@@ -286,9 +286,12 @@ func runSetup(cmd *cobra.Command, f *setupFlags) error {
 	emitter.emit(setupevents.EventTokenLoaded, map[string]any{"source": tokenSource})
 
 	emitter.phase(1, 4, "writing config + token")
-	svc := newSetupService()
+	// Use cfg.Paths.Instance (which may be derived from config path)
+	// rather than resolved.instance alone, ensuring consistency with
+	// the unit path the service will write.
+	svc := newSetupServiceForInstance(cfg.Paths.Instance)
 	action := setupevents.ActionInstalled
-	if unitExists() {
+	if unitExistsForInstance(cfg.Paths.Instance) {
 		action = setupevents.ActionUpdated
 	}
 	if err := svc.InstallAs(cfg, token, resolved.runAs); err != nil {
@@ -313,7 +316,11 @@ func runSetup(cmd *cobra.Command, f *setupFlags) error {
 		return emitter.errorEnvelope(setupevents.ErrInvalidConfig, nil, "", err)
 	}
 	emitter.phase(4, 4, "probing first flush")
-	if err := verifyFirstFlush(emitter, healthTimeout); err != nil {
+	statusFile := cfg.Paths.StatusFile
+	if setupStatusFileOverride != "" {
+		statusFile = setupStatusFileOverride
+	}
+	if err := verifyFirstFlush(emitter, healthTimeout, statusFile); err != nil {
 		return emitter.errorEnvelope(setupevents.ErrHealthCheckFailed, nil,
 			"service started but first flush did not land within the timeout", err)
 	}
@@ -345,6 +352,7 @@ type resolvedSetup struct {
 	runAs            string
 	deploymentID     string
 	tier             string
+	instance         string
 	insecureEndpoint bool
 }
 
@@ -418,11 +426,12 @@ func resolveInputs(f *setupFlags, d agentdetect.Detection) (resolvedSetup, []str
 		runAs:            firstNonEmpty(f.runAs, os.Getenv("TELEMETRON_RUN_AS"), d.RunAsUser),
 		deploymentID:     firstNonEmpty(f.deploymentID, os.Getenv("TELEMETRON_DEPLOYMENT_ID")),
 		tier:             firstNonEmpty(f.tier, os.Getenv("TELEMETRON_TIER")),
+		instance:         firstNonEmpty(f.instance, os.Getenv("TELEMETRON_INSTANCE")),
 		insecureEndpoint: f.insecureEndpoint,
 	}
 
 	// Reconcile against an existing install when fields are unset.
-	if existing := loadExistingConfig(); existing != nil {
+	if existing := loadExistingConfig(r.instance); existing != nil {
 		if r.endpoint == "" {
 			r.endpoint = existing.Endpoint
 		}
@@ -463,7 +472,7 @@ func resolveInputs(f *setupFlags, d agentdetect.Detection) (resolvedSetup, []str
 	if r.endpoint == "" {
 		missing = append(missing, "endpoint")
 	}
-	if !shouldAttemptAutoEnroll(r) && r.tokenFile == "" && r.tokenFromEnv == "" && !existingTokenFilePresent() {
+	if !shouldAttemptAutoEnroll(r) && r.tokenFile == "" && r.tokenFromEnv == "" && !existingTokenFilePresent(r.instance) {
 		missing = append(missing, "token")
 	}
 	return r, missing, nil
@@ -522,8 +531,14 @@ func renderSummary(r resolvedSetup) string {
 	return b.String()
 }
 
-func existingTokenFilePresent() bool {
-	_, err := os.Stat(setupTokenPath)
+func existingTokenFilePresent(instance string) bool {
+	// setupTokenPath is a testing hook; when non-default, use it for primary.
+	if instance == "" && setupTokenPath != "/etc/telemetron/token" {
+		_, err := os.Stat(setupTokenPath)
+		return err == nil
+	}
+	paths := config.InstancePaths(runtime.GOOS, instance)
+	_, err := os.Stat(paths.TokenFile)
 	return err == nil
 }
 
@@ -532,12 +547,20 @@ func unitExists() bool {
 	return err == nil
 }
 
-func loadExistingConfig() *config.Config {
+func unitExistsForInstance(instance string) bool {
+	if instance == "" {
+		return unitExists()
+	}
+	_, err := os.Stat(fmt.Sprintf("/etc/systemd/system/telemetron-%s.service", instance))
+	return err == nil
+}
+
+func loadExistingConfig(instance string) *config.Config {
 	// Only reconcile against a real on-disk config. config.Load returns a
 	// fully-defaulted Config{} even when config.yaml is absent, which used
 	// to poison the setup flow: the default TokenFile was assigned to
 	// r.tokenFile and auto-enroll never ran on a clean host.
-	cfg, err := config.Load(config.LoadOptions{BootstrapOnly: true})
+	cfg, err := config.Load(config.LoadOptions{BootstrapOnly: true, Instance: instance})
 	if err != nil {
 		return nil
 	}
@@ -556,7 +579,11 @@ func buildConfig(r resolvedSetup) (config.Config, error) {
 		"declared.deployment_id": r.deploymentID,
 		"declared.tier":          r.tier,
 	}
-	cfg, err := config.Load(config.LoadOptions{Overrides: overrides, BootstrapOnly: true})
+	// Disable auto-update for secondary instances (primary owns updates)
+	if r.instance != "" {
+		overrides["auto_update.enabled"] = false
+	}
+	cfg, err := config.Load(config.LoadOptions{Overrides: overrides, BootstrapOnly: true, Instance: r.instance})
 	if err != nil {
 		return config.Config{}, err
 	}
@@ -633,11 +660,11 @@ func configStateHash(configData, tokenData []byte) [32]byte {
 // --- verifyFirstFlush is intentionally simple. It waits for the status
 // file (written by the background flusher) to show a first success. The
 // status store is already the source of truth for `telemetron status`.
-func verifyFirstFlush(e *setupEmitter, timeout time.Duration) error {
+func verifyFirstFlush(e *setupEmitter, timeout time.Duration, statusFile string) error {
 	deadline := time.Now().Add(timeout)
 	var last status.Snapshot
 	for {
-		snapshot, ok := statusHealthy()
+		snapshot, ok := statusHealthy(statusFile)
 		if ok {
 			return nil
 		}
@@ -665,8 +692,8 @@ func resolveHealthTimeout(f *setupFlags) (time.Duration, error) {
 	return timeout, nil
 }
 
-func statusHealthy() (status.Snapshot, bool) {
-	snapshot, err := readSetupStatus()
+func statusHealthy(statusFile string) (status.Snapshot, bool) {
+	snapshot, err := status.New(statusFile).Read()
 	if err != nil {
 		return status.Snapshot{}, false
 	}
