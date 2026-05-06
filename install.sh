@@ -24,7 +24,8 @@
 # /v1/enroll route. One-liner:
 #
 #   curl -fsSL https://.../install.sh | \
-#     TELEMETRON_ENDPOINT=https://cfw713s6qf.execute-api.us-east-1.amazonaws.com/v1/metrics sudo -E sh
+#     TELEMETRON_ENDPOINT=https://your-endpoint.example.com/v1/metrics \
+#     TELEMETRON_ENROLL_ENDPOINT=https://your-endpoint.example.com/v1/enroll sudo -E sh
 #
 # Exactly one of TELEMETRON_TOKEN, TELEMETRON_TOKEN_FILE, or
 # TELEMETRON_TOKEN_SECRET is required only when the caller wants to
@@ -75,6 +76,7 @@ PREFIX_DEFAULT="$HOME_DEFAULT/.local"
 PREFIX="${TELEMETRON_PREFIX:-$PREFIX_DEFAULT}"
 
 SETUP_ENDPOINT="${TELEMETRON_ENDPOINT:-}"
+SETUP_ENROLL_ENDPOINT="${TELEMETRON_ENROLL_ENDPOINT:-}"
 SETUP_TOKEN="${TELEMETRON_TOKEN:-}"
 SETUP_TOKEN_FILE="${TELEMETRON_TOKEN_FILE:-}"
 SETUP_TOKEN_SECRET="${TELEMETRON_TOKEN_SECRET:-}"
@@ -261,7 +263,7 @@ if [ -n "$SETUP_ENDPOINT" ] || [ -n "$SETUP_TOKEN" ] || [ -n "$SETUP_TOKEN_FILE"
   if [ "$anonymous_enroll" -eq 1 ]; then
     $maybe_sudo install -d -m 0755 /etc/telemetron
     # shellcheck disable=SC2086
-    $maybe_sudo env PATH="$PATH" "$bindir/telemetron" setup \
+    $maybe_sudo env PATH="$PATH" TELEMETRON_ENROLL_ENDPOINT="$SETUP_ENROLL_ENDPOINT" "$bindir/telemetron" setup \
       --non-interactive --yes \
       --endpoint "$SETUP_ENDPOINT" \
       $SETUP_ARGS

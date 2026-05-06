@@ -15,7 +15,8 @@ For machines running **roundhouse** or **openclaw** — installs the binary, aut
 curl -fsSL https://raw.githubusercontent.com/inceptionstack/telemetron/main/install.sh | \
   TELEMETRON_PREFIX=/usr/local sudo -E bash
 sudo telemetron detect \
-  --endpoint https://cfw713s6qf.execute-api.us-east-1.amazonaws.com/v1/metrics \
+  --endpoint https://your-endpoint.example.com/v1/metrics \
+  --enroll-endpoint https://your-endpoint.example.com/v1/enroll \
   --force
 ```
 
@@ -31,7 +32,8 @@ This will:
 curl -fsSL https://raw.githubusercontent.com/inceptionstack/telemetron/main/install.sh | \
   TELEMETRON_PREFIX=/usr/local sudo -E bash
 sudo telemetron detect \
-  --endpoint https://cfw713s6qf.execute-api.us-east-1.amazonaws.com/v1/metrics \
+  --endpoint https://your-endpoint.example.com/v1/metrics \
+  --enroll-endpoint https://your-endpoint.example.com/v1/enroll \
   --mode roundhouse \
   --force
 ```
@@ -42,7 +44,8 @@ sudo telemetron detect \
 curl -fsSL https://raw.githubusercontent.com/inceptionstack/telemetron/main/install.sh | \
   TELEMETRON_PREFIX=/usr/local sudo -E bash
 sudo telemetron detect \
-  --endpoint https://cfw713s6qf.execute-api.us-east-1.amazonaws.com/v1/metrics \
+  --endpoint https://your-endpoint.example.com/v1/metrics \
+  --enroll-endpoint https://your-endpoint.example.com/v1/enroll \
   --mode openclaw \
   --force
 ```
@@ -51,7 +54,8 @@ sudo telemetron detect \
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/inceptionstack/telemetron/main/install.sh | \
-  TELEMETRON_ENDPOINT=https://cfw713s6qf.execute-api.us-east-1.amazonaws.com/v1/metrics \
+  TELEMETRON_ENDPOINT=https://your-endpoint.example.com/v1/metrics \
+  TELEMETRON_ENROLL_ENDPOINT=https://your-endpoint.example.com/v1/enroll \
   TELEMETRON_MODE=openclaw \
   sudo -E bash
 ```
@@ -80,7 +84,7 @@ These are read by the telemetron binary (via `install.sh` subprocess or direct i
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `TELEMETRON_ENDPOINT` | For auto-setup | OTLP/HTTP metrics endpoint (`/v1/metrics`) |
-| `TELEMETRON_ENROLL_ENDPOINT` | No | Override enrollment endpoint (default is built-in) |
+| `TELEMETRON_ENROLL_ENDPOINT` | For auto-enroll | Enrollment endpoint URL (`/v1/enroll`) |
 | `TELEMETRON_MODE` | Recommended | Agent mode: `openclaw`, `roundhouse` |
 | `TELEMETRON_TOKEN_FILE` | If not enrolling | Path to bearer token file |
 | `TELEMETRON_TOKEN_SECRET` | If not enrolling | AWS Secrets Manager secret ID |
@@ -110,13 +114,14 @@ Auto-detect all agent packs on the machine and configure telemetron for each:
 
 ```bash
 sudo telemetron detect \
-  --endpoint https://cfw713s6qf.execute-api.us-east-1.amazonaws.com/v1/metrics \
+  --endpoint https://your-endpoint.example.com/v1/metrics \
+  --enroll-endpoint https://your-endpoint.example.com/v1/enroll \
   --force
 ```
 
 Flags:
 - `--endpoint` — metrics endpoint (required)
-- `--enroll-endpoint` — override enrollment endpoint (optional, default built-in)
+- `--enroll-endpoint` — enrollment endpoint (required for auto-enroll)
 - `--mode <name>` — only configure a specific pack (e.g., `roundhouse`)
 - `--force` — reconfigure even if already set up
 
@@ -128,7 +133,8 @@ Manual setup for a single pack (lower-level than `detect`):
 
 ```bash
 sudo telemetron setup \
-  --endpoint https://cfw713s6qf.execute-api.us-east-1.amazonaws.com/v1/metrics \
+  --endpoint https://your-endpoint.example.com/v1/metrics \
+  --enroll-endpoint https://your-endpoint.example.com/v1/enroll \
   --mode roundhouse \
   --session-dir /home/ec2-user/.roundhouse/sessions/main \
   --run-as ec2-user
@@ -205,7 +211,8 @@ sudo telemetron status
 
 # Re-detect and reconfigure
 sudo telemetron detect \
-  --endpoint https://cfw713s6qf.execute-api.us-east-1.amazonaws.com/v1/metrics \
+  --endpoint https://your-endpoint.example.com/v1/metrics \
+  --enroll-endpoint https://your-endpoint.example.com/v1/enroll \
   --force
 
 # Uninstall

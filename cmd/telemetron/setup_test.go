@@ -435,6 +435,7 @@ func TestRunSetup_AutoEnrollOptOutSkipsServiceStart(t *testing.T) {
 func TestRunSetup_AutoEnrollUsesEnrolledToken(t *testing.T) {
 	resetEnv(t)
 	t.Setenv("TELEMETRON_CONFIG", t.TempDir()+"/config.yaml")
+	t.Setenv("TELEMETRON_ENROLL_ENDPOINT", "http://test-enroll.local")
 	enrolledToken := "lpk_enroll_" + strings.Repeat("0123456789abcdef", 4)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -508,6 +509,7 @@ func TestRunSetup_AutoEnrollUsesEnrolledToken(t *testing.T) {
 
 func TestRunSetup_AutoEnrollWritesInstallIDAndTokenFiles(t *testing.T) {
 	resetEnv(t)
+	t.Setenv("TELEMETRON_ENROLL_ENDPOINT", "http://test-enroll.local")
 
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "config.yaml")

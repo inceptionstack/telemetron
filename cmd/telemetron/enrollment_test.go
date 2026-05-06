@@ -136,6 +136,7 @@ func TestLoadTokenOrEnroll_AutoEnrollHappyPath(t *testing.T) {
 	for _, k := range []string{"TELEMETRON_TOKEN_SECRET", "TELEMETRON_TOKEN", "TELEMETRON_TOKEN_FILE", "TELEMETRON_NO_AUTO_ENROLL"} {
 		t.Setenv(k, "")
 	}
+	t.Setenv("TELEMETRON_ENROLL_ENDPOINT", "http://test-enroll.local")
 
 	enrolledToken := "lpk_enroll_" + strings.Repeat("0123456789abcdef", 4)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -182,6 +183,7 @@ func TestLoadTokenOrEnroll_AutoEnrollConflictMentionsDifferentMachine(t *testing
 	for _, k := range []string{"TELEMETRON_TOKEN_SECRET", "TELEMETRON_TOKEN", "TELEMETRON_TOKEN_FILE", "TELEMETRON_NO_AUTO_ENROLL"} {
 		t.Setenv(k, "")
 	}
+	t.Setenv("TELEMETRON_ENROLL_ENDPOINT", "http://test-enroll.local")
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "conflict", http.StatusConflict)

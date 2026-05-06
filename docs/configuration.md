@@ -211,7 +211,7 @@ Identical structure to `openclaw`. Uses the same JSONL session format.
 
 ### `TELEMETRON_ENROLL_ENDPOINT`
 
-- Enrollment endpoint URL for anonymous auto-enroll (default: `https://cfw713s6qf.execute-api.us-east-1.amazonaws.com/v1/enroll`)
+- Enrollment endpoint URL for anonymous auto-enroll (no default — must be provided via `--enroll-endpoint` or `TELEMETRON_ENROLL_ENDPOINT`)
 
 ### `TELEMETRON_NO_AUTO_ENROLL`
 
@@ -264,7 +264,7 @@ Auto-detect agent packs on the machine and configure telemetron for each.
 Flags:
 
 - `--endpoint`: metrics endpoint (required)
-- `--enroll-endpoint`: override enrollment endpoint (optional, default built-in)
+- `--enroll-endpoint`: enrollment endpoint (required for auto-enroll)
 - `--mode`: only configure a specific pack (e.g., `roundhouse`)
 - `--force`: reconfigure even if already set up
 
