@@ -65,21 +65,6 @@ func runDetect(cmd *cobra.Command, f *detectFlags) error {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: detection error: %v\n", err)
 	}
 
-	// Filter by mode if specified
-	if f.mode != "" {
-		var filtered []agentdetect.Detection
-		for _, d := range detections {
-			if d.Mode == f.mode {
-				filtered = append(filtered, d)
-			}
-		}
-		detections = filtered
-	}
-
-	if len(detections) == 0 {
-		return fmt.Errorf("no packs detected on this host")
-	}
-
 	// Filter out ambiguous detections (Mode="") and warn
 	var resolved []agentdetect.Detection
 	for _, d := range detections {
@@ -93,8 +78,27 @@ func runDetect(cmd *cobra.Command, f *detectFlags) error {
 	}
 	detections = resolved
 
+	// Track total viable packs (after ambiguity filter, before mode filter)
+	// for instance assignment. This ensures --mode roundhouse on a dual-pack
+	// host still treats roundhouse as secondary, preserving primary openclaw.
+	totalDetected := len(detections)
+
+	// Filter by mode if specified
+	if f.mode != "" {
+		var filtered []agentdetect.Detection
+		for _, d := range detections {
+			if d.Mode == f.mode {
+				filtered = append(filtered, d)
+			}
+		}
+		detections = filtered
+	}
+
 	if len(detections) == 0 {
-		return fmt.Errorf("no packs detected on this host (openclaw detection was ambiguous; pass --session-dir to setup)")
+		if totalDetected > 0 {
+			return fmt.Errorf("no packs matching mode %q found on this host", f.mode)
+		}
+		return fmt.Errorf("no packs detected on this host")
 	}
 
 	// Print detection summary
@@ -116,7 +120,7 @@ func runDetect(cmd *cobra.Command, f *detectFlags) error {
 	for i, d := range detections {
 		fmt.Fprintf(cmd.OutOrStdout(), "\n[%d/%d] Setting up %s...\n", i+1, len(detections), d.Mode)
 
-		instance := instanceForModeInContext(d.Mode, len(detections))
+		instance := instanceForModeInContext(d.Mode, totalDetected)
 
 		if !f.force && instanceAlreadyConfigured(instance) && instanceModeMatches(instance, d.Mode) {
 			fmt.Fprintf(cmd.OutOrStdout(), "  %s already configured, skipping (use --force to reconfigure)\n", arrow)
@@ -156,7 +160,7 @@ func detectPacks(f *detectFlags) ([]agentdetect.Detection, []error) {
 	// When running as root without SUDO_USER (cloud-init, UserData),
 	// scan all plausible home dirs to find agents.
 	if os.Geteuid() == 0 && os.Getenv("SUDO_USER") == "" {
-		return detectFromAllHomes(), nil
+		return detectFromAllHomes()
 	}
 
 	return agentdetect.DetectAll(agentdetect.Options{})
@@ -164,8 +168,10 @@ func detectPacks(f *detectFlags) ([]agentdetect.Detection, []error) {
 
 // detectFromAllHomes scans /home/* (and /root) for agent directories.
 // Passes explicit User so RunAsUser resolves to the home dir owner, not root.
-func detectFromAllHomes() []agentdetect.Detection {
+// Returns detections and collected warnings from individual home scans.
+func detectFromAllHomes() ([]agentdetect.Detection, []error) {
 	var results []agentdetect.Detection
+	var allErrs []error
 	seen := map[string]bool{}
 
 	entries, err := os.ReadDir("/home")
@@ -176,10 +182,11 @@ func detectFromAllHomes() []agentdetect.Detection {
 			}
 			username := e.Name()
 			home := "/home/" + username
-			detections, _ := agentdetect.DetectAll(agentdetect.Options{
+			detections, errs := agentdetect.DetectAll(agentdetect.Options{
 				HomeDirOverride: home,
 				User:            username,
 			})
+			allErrs = append(allErrs, errs...)
 			for _, d := range detections {
 				key := d.Mode + ":" + d.SessionDir
 				if !seen[key] {
@@ -191,10 +198,11 @@ func detectFromAllHomes() []agentdetect.Detection {
 	}
 
 	// Also check /root
-	detections, _ := agentdetect.DetectAll(agentdetect.Options{
+	detections, errs := agentdetect.DetectAll(agentdetect.Options{
 		HomeDirOverride: "/root",
 		User:            "root",
 	})
+	allErrs = append(allErrs, errs...)
 	for _, d := range detections {
 		key := d.Mode + ":" + d.SessionDir
 		if !seen[key] {
@@ -202,7 +210,7 @@ func detectFromAllHomes() []agentdetect.Detection {
 			results = append(results, d)
 		}
 	}
-	return results
+	return results, allErrs
 }
 
 func instanceAlreadyConfigured(instance string) bool {

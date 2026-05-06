@@ -286,9 +286,12 @@ func runSetup(cmd *cobra.Command, f *setupFlags) error {
 	emitter.emit(setupevents.EventTokenLoaded, map[string]any{"source": tokenSource})
 
 	emitter.phase(1, 4, "writing config + token")
-	svc := newSetupServiceForInstance(resolved.instance)
+	// Use cfg.Paths.Instance (which may be derived from config path)
+	// rather than resolved.instance alone, ensuring consistency with
+	// the unit path the service will write.
+	svc := newSetupServiceForInstance(cfg.Paths.Instance)
 	action := setupevents.ActionInstalled
-	if unitExistsForInstance(resolved.instance) {
+	if unitExistsForInstance(cfg.Paths.Instance) {
 		action = setupevents.ActionUpdated
 	}
 	if err := svc.InstallAs(cfg, token, resolved.runAs); err != nil {
