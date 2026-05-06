@@ -7,9 +7,50 @@ Privacy-safe telemetry sidecar for coding agent sessions. Exports bounded OTLP m
 
 ## Install
 
-### Quick install (with auto-enrollment)
+### Quick install (auto-detect + auto-enroll)
 
-For most users — installs the binary, auto-enrolls with the telemetry endpoint, and starts the systemd service:
+For machines running **roundhouse** or **openclaw** — installs the binary, auto-detects your agent, enrolls, and starts the systemd service:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/inceptionstack/telemetron/main/install.sh | \
+  TELEMETRON_PREFIX=/usr/local sudo -E bash
+sudo telemetron detect \
+  --endpoint https://your-endpoint.example.com/v1/metrics \
+  --enroll-endpoint https://your-endpoint.example.com/v1/enroll \
+  --force
+```
+
+This will:
+1. Download and install the latest binary
+2. Auto-detect which agent packs are on the machine (roundhouse, openclaw)
+3. Auto-enroll with the telemetry backend (no token needed)
+4. Install and start a systemd service per detected pack
+
+### Single-pack install (roundhouse)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/inceptionstack/telemetron/main/install.sh | \
+  TELEMETRON_PREFIX=/usr/local sudo -E bash
+sudo telemetron detect \
+  --endpoint https://your-endpoint.example.com/v1/metrics \
+  --enroll-endpoint https://your-endpoint.example.com/v1/enroll \
+  --mode roundhouse \
+  --force
+```
+
+### Single-pack install (openclaw)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/inceptionstack/telemetron/main/install.sh | \
+  TELEMETRON_PREFIX=/usr/local sudo -E bash
+sudo telemetron detect \
+  --endpoint https://your-endpoint.example.com/v1/metrics \
+  --enroll-endpoint https://your-endpoint.example.com/v1/enroll \
+  --mode openclaw \
+  --force
+```
+
+### One-liner (legacy, uses install.sh setup)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/inceptionstack/telemetron/main/install.sh | \
@@ -19,37 +60,32 @@ curl -fsSL https://raw.githubusercontent.com/inceptionstack/telemetron/main/inst
   sudo -E bash
 ```
 
-This will:
-1. Download and verify the latest binary
-2. Auto-enroll with the telemetry backend (no token needed)
-3. Detect your agent's session directory
-4. Install and start a systemd service
-
-### With an existing token
-
-If you already have a bearer token:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/inceptionstack/telemetron/main/install.sh | \
-  TELEMETRON_ENDPOINT=https://your-endpoint.example.com/v1/metrics \
-  TELEMETRON_TOKEN_FILE=/path/to/token \
-  TELEMETRON_MODE=openclaw \
-  sudo -E bash
-```
-
 ### Binary only (no service)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/inceptionstack/telemetron/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/inceptionstack/telemetron/main/install.sh | bash
 ```
+
+### Prerequisites
+
+- Linux with systemd (for service install)
+- The agent's session directory must exist (e.g., `~/.roundhouse/sessions/main/` or `~/.openclaw/agents/main/sessions/`)
+- If the session directory doesn't exist yet (fresh install, no messages received), create it as the agent user:
+  ```bash
+  # Replace <user> with the user running the agent (e.g., ec2-user, ubuntu)
+  sudo -u <user> mkdir -p /home/<user>/.roundhouse/sessions/main   # for roundhouse
+  sudo -u <user> mkdir -p /home/<user>/.openclaw/agents/main/sessions  # for openclaw
+  ```
 
 ### Environment variables
 
+These are read by the telemetron binary (via `install.sh` subprocess or direct invocation):
+
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `TELEMETRON_ENDPOINT` | Yes (for service) | OTLP/HTTP metrics endpoint (`/v1/metrics`) |
-| `TELEMETRON_ENROLL_ENDPOINT` | For auto-enroll | Enrollment endpoint (`/v1/enroll`). Defaults to `https://telemetry.loki.run/v1/enroll` |
-| `TELEMETRON_MODE` | Recommended | Agent mode: `openclaw`, `claude-code`, `kiro-cli`, etc. |
+| `TELEMETRON_ENDPOINT` | For auto-setup | OTLP/HTTP metrics endpoint (`/v1/metrics`) |
+| `TELEMETRON_ENROLL_ENDPOINT` | For auto-enroll | Enrollment endpoint URL (`/v1/enroll`) |
+| `TELEMETRON_MODE` | Recommended | Agent mode: `openclaw`, `roundhouse` |
 | `TELEMETRON_TOKEN_FILE` | If not enrolling | Path to bearer token file |
 | `TELEMETRON_TOKEN_SECRET` | If not enrolling | AWS Secrets Manager secret ID |
 | `TELEMETRON_VERSION` | No | Pin a specific release (default: latest) |
@@ -57,17 +93,65 @@ curl -fsSL https://raw.githubusercontent.com/inceptionstack/telemetron/main/inst
 | `TELEMETRON_SESSION_DIR` | No | Override auto-detected session directory |
 | `TELEMETRON_RUN_AS` | No | User to run the service as (default: `$SUDO_USER`) |
 | `TELEMETRON_NO_AUTO_ENROLL` | No | Set to `1` to disable anonymous enrollment |
-| `TELEMETRON_SETUP_ARGS` | No | Extra args passed to `telemetron setup` |
+| `TELEMETRON_SETUP_ARGS` | No | Extra args passed to `telemetron setup` (legacy path only) |
 
 ### Other install methods
 
 ```bash
 # From source
 git clone https://github.com/inceptionstack/telemetron.git
-cd telemetron && make build
+cd telemetron && go build ./cmd/telemetron
 
 # Go install
 go install github.com/inceptionstack/telemetron/cmd/telemetron@latest
+```
+
+## Commands
+
+### `telemetron detect`
+
+Auto-detect all agent packs on the machine and configure telemetron for each:
+
+```bash
+sudo telemetron detect \
+  --endpoint https://your-endpoint.example.com/v1/metrics \
+  --enroll-endpoint https://your-endpoint.example.com/v1/enroll \
+  --force
+```
+
+Flags:
+- `--endpoint` — metrics endpoint (required)
+- `--enroll-endpoint` — enrollment endpoint (required for auto-enroll)
+- `--mode <name>` — only configure a specific pack (e.g., `roundhouse`)
+- `--force` — reconfigure even if already set up
+
+On multi-pack hosts, `detect` assigns openclaw as primary and other packs as secondary instances with their own systemd units.
+
+### `telemetron setup`
+
+Manual setup for a single pack (lower-level than `detect`):
+
+```bash
+sudo telemetron setup \
+  --endpoint https://your-endpoint.example.com/v1/metrics \
+  --enroll-endpoint https://your-endpoint.example.com/v1/enroll \
+  --mode roundhouse \
+  --session-dir /home/ec2-user/.roundhouse/sessions/main \
+  --run-as ec2-user
+```
+
+### `telemetron status`
+
+```bash
+sudo telemetron status
+```
+
+### `telemetron update`
+
+Manually update to the latest release:
+
+```bash
+sudo telemetron update
 ```
 
 ## What it does
@@ -125,8 +209,11 @@ Full reference: [docs/configuration.md](docs/configuration.md)
 # Check status
 sudo telemetron status
 
-# Re-run setup (idempotent — same inputs = no-op)
-sudo telemetron setup --endpoint ... --token-file ...
+# Re-detect and reconfigure
+sudo telemetron detect \
+  --endpoint https://your-endpoint.example.com/v1/metrics \
+  --enroll-endpoint https://your-endpoint.example.com/v1/enroll \
+  --force
 
 # Uninstall
 sudo telemetron uninstall

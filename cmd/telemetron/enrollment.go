@@ -20,9 +20,9 @@ import (
 )
 
 const (
-	// DefaultEnrollEndpoint is the production endpoint for anonymous enrollment.
-	// Override via TELEMETRON_ENROLL_ENDPOINT for testing.
-	DefaultEnrollEndpoint = "https://telemetry.loki.run/v1/enroll"
+	// DefaultEnrollEndpoint is empty — callers must provide an endpoint
+	// via --enroll-endpoint flag or TELEMETRON_ENROLL_ENDPOINT env var.
+	DefaultEnrollEndpoint = ""
 )
 
 var (
@@ -128,7 +128,11 @@ func loadTokenOrEnroll(ctx context.Context, r resolvedSetup, cfg config.Config) 
 		return "", "", fmt.Errorf("compute machine_id: %w", err)
 	}
 
-	client := newEnrollClient(firstNonEmpty(strings.TrimSpace(os.Getenv("TELEMETRON_ENROLL_ENDPOINT")), DefaultEnrollEndpoint), nil)
+	enrollURL := firstNonEmpty(strings.TrimSpace(os.Getenv("TELEMETRON_ENROLL_ENDPOINT")), DefaultEnrollEndpoint)
+	if enrollURL == "" {
+		return "", "", fmt.Errorf("no enrollment endpoint configured; set --enroll-endpoint or TELEMETRON_ENROLL_ENDPOINT")
+	}
+	client := newEnrollClient(enrollURL, nil)
 	info := readInstallerInfo()
 	resp, err := client.Enroll(ctx, enroll.EnrollRequest{
 		InstallID:         installID,

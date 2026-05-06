@@ -29,6 +29,7 @@ var allowedMetricAttrs = map[string]map[string]struct{}{
 	MetricAgentTurn: {
 		"outcome":      {},
 		"model.family": {},
+		"session.type": {},
 	},
 	MetricToolCall: {
 		"outcome":    {},
