@@ -253,9 +253,15 @@ func (c *Collector) handleMessage(path string, msg map[string]any, fileState *Fi
 		outcome = "aborted"
 	}
 
+	sessionType := fileState.SessionType
+	if sessionType == "" {
+		sessionType = "unknown"
+	}
+
 	sink.Counter(contract.MetricAgentTurn, map[string]string{
 		"outcome":      outcome,
 		"model.family": modelFamily,
+		"session.type": sessionType,
 	})
 
 	content, _ := msg["content"].([]any)
