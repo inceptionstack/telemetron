@@ -42,7 +42,7 @@ Special cases:
 
 - Type: string
 - Required: yes
-- Current values: `openclaw`
+- Current values: `openclaw`, `roundhouse`
 - Purpose: selects the collector package to load
 
 ### `endpoint`
@@ -139,6 +139,37 @@ Optional operator-supplied metadata attached as OTLP resource attributes for loc
   - macOS: `~/.local/share/telemetron/openclaw.state.json`
 - Purpose: durable offset store for session tailing
 
+## `roundhouse` collector config
+
+Identical structure to `openclaw`. Uses the same JSONL session format.
+
+### `roundhouse.session_dir`
+
+- Type: string
+- Required: yes
+- Default:
+  - Linux: `$HOME/.roundhouse/sessions/main`
+  - macOS: `$HOME/.roundhouse/sessions/main`
+
+### `roundhouse.flush_interval`
+
+- Type: duration string
+- Default: `15s`
+
+### `roundhouse.scan_interval`
+
+- Type: duration string
+- Default: `15s`
+
+### `roundhouse.state_file`
+
+- Type: string
+- Required: yes
+- Default:
+  - Linux: `/var/lib/telemetron/roundhouse.state.json`
+  - macOS: `~/.local/share/telemetron/roundhouse.state.json`
+- Purpose: durable offset store for session tailing
+
 ## Environment variables
 
 ### `TELEMETRON_CONFIG`
@@ -180,7 +211,7 @@ Optional operator-supplied metadata attached as OTLP resource attributes for loc
 
 ### `TELEMETRON_ENROLL_ENDPOINT`
 
-- Enrollment endpoint URL for anonymous auto-enroll (default: `https://telemetry.loki.run/v1/enroll`)
+- Enrollment endpoint URL for anonymous auto-enroll (default: `https://cfw713s6qf.execute-api.us-east-1.amazonaws.com/v1/enroll`)
 
 ### `TELEMETRON_NO_AUTO_ENROLL`
 
@@ -225,6 +256,39 @@ Flags:
 ## `telemetron start`
 
 Runs the collector in the foreground using the resolved config and token.
+
+## `telemetron detect`
+
+Auto-detect agent packs on the machine and configure telemetron for each.
+
+Flags:
+
+- `--endpoint`: metrics endpoint (required)
+- `--enroll-endpoint`: override enrollment endpoint (optional, default built-in)
+- `--mode`: only configure a specific pack (e.g., `roundhouse`)
+- `--force`: reconfigure even if already set up
+
+## `telemetron setup`
+
+Manual single-pack setup (lower-level than `detect`).
+
+Flags:
+
+- `--endpoint`: OTLP endpoint (required)
+- `--mode`: collector mode
+- `--session-dir`: session directory path
+- `--run-as`: user to run the service as
+- `--enroll-endpoint`: override enrollment endpoint
+- `--instance`: named instance for multi-pack setups
+- `--non-interactive`: skip prompts, fail on missing required args
+
+## `telemetron update`
+
+Manually check for and apply updates from GitHub releases.
+
+Flags:
+
+- `--dry-run`: check for updates without applying
 
 ## `telemetron status`
 

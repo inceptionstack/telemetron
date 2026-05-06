@@ -22,7 +22,7 @@ import (
 const (
 	// DefaultEnrollEndpoint is the production endpoint for anonymous enrollment.
 	// Override via TELEMETRON_ENROLL_ENDPOINT for testing.
-	DefaultEnrollEndpoint = "https://telemetry.loki.run/v1/enroll"
+	DefaultEnrollEndpoint = "https://cfw713s6qf.execute-api.us-east-1.amazonaws.com/v1/enroll"
 )
 
 var (

@@ -24,7 +24,7 @@
 # /v1/enroll route. One-liner:
 #
 #   curl -fsSL https://.../install.sh | \
-#     TELEMETRON_ENDPOINT=https://telemetry.loki.run/v1/metrics sudo -E sh
+#     TELEMETRON_ENDPOINT=https://cfw713s6qf.execute-api.us-east-1.amazonaws.com/v1/metrics sudo -E sh
 #
 # Exactly one of TELEMETRON_TOKEN, TELEMETRON_TOKEN_FILE, or
 # TELEMETRON_TOKEN_SECRET is required only when the caller wants to
