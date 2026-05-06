@@ -8,10 +8,6 @@ import "github.com/inceptionstack/telemetron/internal/config"
 
 type darwinService struct{}
 
-func newService() Service {
-	return darwinService{}
-}
-
 func newServiceWithInstance(_ string) Service {
 	return darwinService{}
 }

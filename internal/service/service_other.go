@@ -8,10 +8,6 @@ import "github.com/inceptionstack/telemetron/internal/config"
 
 type unsupportedService struct{}
 
-func newService() Service {
-	return unsupportedService{}
-}
-
 func newServiceWithInstance(_ string) Service {
 	return unsupportedService{}
 }

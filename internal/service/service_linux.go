@@ -85,10 +85,6 @@ type linuxService struct {
 	instance    string // empty = primary
 }
 
-func newService() Service {
-	return newServiceWithInstance("")
-}
-
 func newServiceWithInstance(instance string) Service {
 	return &linuxService{
 		fs: osFS{},
