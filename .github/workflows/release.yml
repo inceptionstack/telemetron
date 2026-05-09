@@ -30,7 +30,7 @@ jobs:
       - run: go mod verify
       - run: go vet ./...
       - run: go test -race ./...
-      - uses: golangci/golangci-lint-action@v7
+      - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.1
           args: --config .golangci.yml
